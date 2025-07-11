@@ -7,6 +7,7 @@ import { useMusicPlayer } from './GlobalMusicPlayer';
 import HelpDeskWidget from './HelpDeskWidget';
 import LyricsReviewPanel from './LyricsReviewPanel';
 import SongReviewPanel from './SongReviewPanel';
+import AffiliatePanel from './AffiliatePanel';
 
 // Order Status Component
 const OrderStatus = ({ status }) => {
@@ -167,7 +168,7 @@ const Dashboard = () => {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [expandedOrder, setExpandedOrder] = useState(null);
-  const [activeTab, setActiveTab] = useState('orders'); // Possible values: 'orders', 'helpdesk'
+  const [activeTab, setActiveTab] = useState('orders'); // Possible values: 'orders', 'helpdesk', 'affiliate'
   const [isReviewingLyrics, setIsReviewingLyrics] = useState(false);
   const [isReviewingSong, setIsReviewingSong] = useState(false);
   const [currentLyrics, setCurrentLyrics] = useState('');
@@ -543,6 +544,25 @@ const handleSongChangeRequest = async (feedback) => {
     };
   };
   
+  // Navigation handlers for "Create Song" buttons
+  const handleCreateNewSong = (e) => {
+    e.preventDefault();
+    
+    // Navigate to homepage first
+    navigate('/');
+    
+    // Wait for navigation to complete, then scroll to form
+    setTimeout(() => {
+      const orderForm = document.getElementById('order-form');
+      if (orderForm) {
+        orderForm.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start' 
+        });
+      }
+    }, 100);
+  };
+  
   if (!currentUser) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-deep">
@@ -612,7 +632,7 @@ const handleSongChangeRequest = async (feedback) => {
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2 font-secondary">Your Dashboard</h1>
           <p className="text-light-muted">
-            Manage your custom song orders and get support when you need it.
+            Manage your custom song orders, participate in our affiliate program, and get support when you need it.
           </p>
         </div>
         
@@ -712,9 +732,12 @@ const handleSongChangeRequest = async (feedback) => {
                   {orders.length === 0 ? (
                     <div className="bg-white/5 rounded-lg p-8 text-center">
                       <p className="text-light-muted mb-4">You don't have any orders yet.</p>
-                      <Link to="/#pricing" className="px-6 py-3 bg-accent text-dark rounded-full font-medium hover:bg-accent-alt transition-colors">
+                      <button 
+                        onClick={handleCreateNewSong}
+                        className="px-6 py-3 bg-accent text-dark rounded-full font-medium hover:bg-accent-alt transition-colors"
+                      >
                         Create Your First Song
-                      </Link>
+                      </button>
                     </div>
                   ) : (
                     <div className="space-y-6">
@@ -877,9 +900,12 @@ const handleSongChangeRequest = async (feedback) => {
                     </div>
                   )}
                 </>
-              ) : (
+              ) : activeTab === 'helpdesk' ? (
                 // Helpdesk Tab Content
                 <HelpDeskWidget />
+              ) : (
+                // Affiliate Tab Content
+                <AffiliatePanel />
               )}
             </div>
             
@@ -913,14 +939,26 @@ const handleSongChangeRequest = async (feedback) => {
                     <span>Help Desk</span>
                   </button>
                   
+                  <button
+                    onClick={() => setActiveTab('affiliate')}
+                    className={`flex items-center p-3 rounded-lg transition-colors w-full text-left ${
+                      activeTab === 'affiliate' 
+                        ? 'bg-accent/10 text-white' 
+                        : 'hover:bg-white/10 text-light-muted'
+                    }`}
+                  >
+                    <i className={`fas fa-handshake w-8 ${activeTab === 'affiliate' ? 'text-accent' : ''}`}></i>
+                    <span>Affiliate Program</span>
+                  </button>
+                  
                   <Link to="/" className="flex items-center p-3 hover:bg-white/10 rounded-lg transition-colors">
                     <i className="fas fa-home w-8"></i>
                     <span>Homepage</span>
                   </Link>
-                  <Link to="/#order-form" className="flex items-center p-3 hover:bg-white/10 rounded-lg transition-colors">
+                  <button onClick={handleCreateNewSong} className="flex items-center p-3 hover:bg-white/10 rounded-lg transition-colors w-full text-left">
                     <i className="fas fa-plus w-8"></i>
                     <span>Create New Song</span>
-                  </Link>
+                  </button>
                   <Link to="/showcase" className="flex items-center p-3 hover:bg-white/10 rounded-lg transition-colors">
                     <i className="fas fa-headphones w-8"></i>
                     <span>Song Gallery</span>
@@ -962,19 +1000,26 @@ const handleSongChangeRequest = async (feedback) => {
                   className={`flex flex-col items-center p-2 ${activeTab === 'orders' ? 'text-accent' : 'text-light-muted'}`}
                 >
                   <i className="fas fa-music text-lg"></i>
-                  <span className="text-xs mt-1">My Orders</span>
+                  <span className="text-xs mt-1">Orders</span>
                 </button>
                 <button
                   onClick={() => setActiveTab('helpdesk')}
                   className={`flex flex-col items-center p-2 ${activeTab === 'helpdesk' ? 'text-accent' : 'text-light-muted'}`}
                 >
                   <i className="fas fa-headset text-lg"></i>
-                  <span className="text-xs mt-1">Help Desk</span>
+                  <span className="text-xs mt-1">Help</span>
                 </button>
-                <Link to="/#order-form" className="flex flex-col items-center p-2 text-light-muted">
+                <button
+                  onClick={() => setActiveTab('affiliate')}
+                  className={`flex flex-col items-center p-2 ${activeTab === 'affiliate' ? 'text-accent' : 'text-light-muted'}`}
+                >
+                  <i className="fas fa-handshake text-lg"></i>
+                  <span className="text-xs mt-1">Affiliate</span>
+                </button>
+                <button onClick={handleCreateNewSong} className="flex flex-col items-center p-2 text-light-muted">
                   <i className="fas fa-plus text-lg"></i>
                   <span className="text-xs mt-1">New Song</span>
-                </Link>
+                </button>
                 <Link to="/profile" className="flex flex-col items-center p-2 text-light-muted">
                   <i className="fas fa-user text-lg"></i>
                   <span className="text-xs mt-1">Profile</span>

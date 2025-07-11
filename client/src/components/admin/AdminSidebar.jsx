@@ -5,6 +5,7 @@ const AdminSidebar = ({ activeSection, setActiveSection }) => {
     { id: 'dashboard', label: 'Dashboard', icon: 'tachometer-alt' },
     { id: 'orders', label: 'Orders', icon: 'file-invoice' },
     { id: 'showcase', label: 'Showcase', icon: 'music' },
+    { id: 'affiliate', label: 'Affiliates', icon: 'handshake' }, // ADDED AFFILIATE
     { id: 'helpdesk', label: 'Help Desk', icon: 'headset' },
     { id: 'newsletter', label: 'Newsletter', icon: 'envelope' }
   ];

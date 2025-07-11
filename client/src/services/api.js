@@ -1,5 +1,6 @@
 import axios from 'axios';
 import adminHelpdeskService from './adminHelpdeskService';
+import { affiliateService, adminAffiliateService } from './affiliateService';
 
 // Create axios instance with base URL
 const api = axios.create({
@@ -625,7 +626,9 @@ export {
   adminService,
   helpdeskService,
   adminHelpdeskService,
-  paymentService
+  paymentService,
+  affiliateService,
+  adminAffiliateService
 };
 
 export default api;

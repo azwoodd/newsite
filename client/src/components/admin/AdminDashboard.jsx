@@ -10,6 +10,7 @@ import OrdersList from './OrdersList';
 import ShowcaseManager from './ShowcaseManager';
 import NewsletterManager from './NewsletterManager';
 import HelpDeskManager from './HelpDeskManager';
+import AdminAffiliatePanel from './AdminAffiliatePanel';
 
 const AdminDashboard = () => {
   const { currentUser, logout } = useAuth();
@@ -277,6 +278,19 @@ const AdminDashboard = () => {
                     </div>
                     <p className="text-sm text-light-muted">Manage email subscribers</p>
                   </button>
+
+                  <button
+                    onClick={() => setActiveSection('affiliate')}
+                    className="bg-white/5 border border-white/10 rounded-lg p-4 hover:bg-white/10 transition-colors text-left"
+                  >
+                    <div className="flex items-center mb-2">
+                      <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent mr-3">
+                        <i className="fas fa-handshake"></i>
+                      </div>
+                      <span className="font-medium">Affiliates</span>
+                    </div>
+                    <p className="text-sm text-light-muted">Manage affiliate program</p>
+                  </button>
                   
                   <Link
                     to="/"
@@ -314,44 +328,59 @@ const AdminDashboard = () => {
           {activeSection === 'helpdesk' && (
             <HelpDeskManager />
           )}
+
+          {/* Affiliate Management - MOVED INSIDE MAIN */}
+          {activeSection === 'affiliate' && (
+            <AdminAffiliatePanel />
+          )}
         </main>
         
-        {/* Mobile Navigation Footer - Updated to make space for music player */}
+        {/* Mobile Navigation Footer - Optimized 3x2 Grid */}
         <div className={`lg:hidden fixed bottom-0 left-0 w-full bg-dark/90 backdrop-blur-md border-t border-white/10 z-30 ${currentTrack ? 'mb-[90px]' : ''}`}>
-          <div className="flex justify-around py-2">
+          <div className="grid grid-cols-3 gap-1 py-1 px-1">
+            {/* Row 1 */}
             <button
-              className={`flex flex-col items-center p-2 ${activeSection === 'dashboard' ? 'text-accent' : 'text-light-muted'}`}
+              className={`flex flex-col items-center p-1 ${activeSection === 'dashboard' ? 'text-accent' : 'text-light-muted'}`}
               onClick={() => setActiveSection('dashboard')}
             >
-              <i className="fas fa-tachometer-alt text-lg"></i>
+              <i className="fas fa-tachometer-alt text-sm"></i>
               <span className="text-xs mt-1">Dashboard</span>
             </button>
             <button
-              className={`flex flex-col items-center p-2 ${activeSection === 'orders' ? 'text-accent' : 'text-light-muted'}`}
+              className={`flex flex-col items-center p-1 ${activeSection === 'orders' ? 'text-accent' : 'text-light-muted'}`}
               onClick={() => setActiveSection('orders')}
             >
-              <i className="fas fa-file-invoice text-lg"></i>
+              <i className="fas fa-file-invoice text-sm"></i>
               <span className="text-xs mt-1">Orders</span>
             </button>
             <button
-              className={`flex flex-col items-center p-2 ${activeSection === 'showcase' ? 'text-accent' : 'text-light-muted'}`}
+              className={`flex flex-col items-center p-1 ${activeSection === 'showcase' ? 'text-accent' : 'text-light-muted'}`}
               onClick={() => setActiveSection('showcase')}
             >
-              <i className="fas fa-music text-lg"></i>
+              <i className="fas fa-music text-sm"></i>
               <span className="text-xs mt-1">Showcase</span>
             </button>
+            
+            {/* Row 2 */}
             <button
-              className={`flex flex-col items-center p-2 ${activeSection === 'helpdesk' ? 'text-accent' : 'text-light-muted'}`}
-              onClick={() => setActiveSection('helpdesk')}
+              className={`flex flex-col items-center p-1 ${activeSection === 'affiliate' ? 'text-accent' : 'text-light-muted'}`}
+              onClick={() => setActiveSection('affiliate')}
             >
-              <i className="fas fa-headset text-lg"></i>
-              <span className="text-xs mt-1">Help Desk</span>
+              <i className="fas fa-handshake text-sm"></i>
+              <span className="text-xs mt-1">Affiliate</span>
             </button>
             <button
-              className={`flex flex-col items-center p-2 ${activeSection === 'newsletter' ? 'text-accent' : 'text-light-muted'}`}
+              className={`flex flex-col items-center p-1 ${activeSection === 'helpdesk' ? 'text-accent' : 'text-light-muted'}`}
+              onClick={() => setActiveSection('helpdesk')}
+            >
+              <i className="fas fa-headset text-sm"></i>
+              <span className="text-xs mt-1">Help</span>
+            </button>
+            <button
+              className={`flex flex-col items-center p-1 ${activeSection === 'newsletter' ? 'text-accent' : 'text-light-muted'}`}
               onClick={() => setActiveSection('newsletter')}
             >
-              <i className="fas fa-envelope text-lg"></i>
+              <i className="fas fa-envelope text-sm"></i>
               <span className="text-xs mt-1">Newsletter</span>
             </button>
           </div>
