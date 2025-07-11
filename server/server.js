@@ -225,10 +225,13 @@ app.get('/api/health', (req, res) => {
 });
 
 // Routes with error handling
+// Quick fix for server.js - disable problematic routes temporarily
+// Replace the loadRoutes function in your server.js file
+
 const loadRoutes = () => {
   try {
-    // Load routes one by one with error handling
-    const routeConfigs = [
+    // Load working routes only
+    const workingRoutes = [
       { path: '/api/auth', module: './routes/auth', name: 'Auth' },
       { path: '/api/users', module: './routes/user', name: 'User' },
       { path: '/api/orders', module: './routes/order', name: 'Order' },
@@ -236,12 +239,17 @@ const loadRoutes = () => {
       { path: '/api/newsletter', module: './routes/newsletter', name: 'Newsletter' },
       { path: '/api/admin', module: './routes/admin', name: 'Admin' },
       { path: '/api/helpdesk', module: './routes/helpdesk', name: 'Helpdesk' },
-      { path: '/api/payment', module: './routes/stripe', name: 'Stripe' },
-      { path: '/api/paypal', module: './routes/paypal', name: 'PayPal' },
-      { path: '/api/affiliate', module: './routes/affiliate', name: 'Affiliate' }
+      { path: '/api/payment', module: './routes/stripe', name: 'Stripe' }
     ];
 
-    routeConfigs.forEach(({ path, module, name }) => {
+    // Temporarily disabled routes (until dependencies are fixed)
+    const disabledRoutes = [
+      { path: '/api/paypal', name: 'PayPal', reason: 'Missing express-validator dependency' },
+      { path: '/api/affiliate', name: 'Affiliate', reason: 'Undefined callback functions' }
+    ];
+
+    // Load working routes
+    workingRoutes.forEach(({ path, module, name }) => {
       try {
         const router = require(module);
         app.use(path, router);
@@ -258,6 +266,19 @@ const loadRoutes = () => {
         });
       }
     });
+
+    // Create placeholder routes for disabled services
+    disabledRoutes.forEach(({ path, name, reason }) => {
+      console.log(`⚠️ ${name} routes disabled: ${reason}`);
+      app.use(path, (req, res) => {
+        res.status(503).json({
+          success: false,
+          message: `${name} service is temporarily disabled`,
+          reason: reason
+        });
+      });
+    });
+
   } catch (error) {
     console.error('Failed to load routes:', error);
   }
