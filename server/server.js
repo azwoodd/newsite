@@ -239,13 +239,13 @@ const loadRoutes = () => {
       { path: '/api/newsletter', module: './routes/newsletter', name: 'Newsletter' },
       { path: '/api/admin', module: './routes/admin', name: 'Admin' },
       { path: '/api/helpdesk', module: './routes/helpdesk', name: 'Helpdesk' },
-      { path: '/api/payment', module: './routes/stripe', name: 'Stripe' }
+      { path: '/api/payment', module: './routes/stripe', name: 'Stripe' },
+      { path: '/api/affiliate', module: './routes/affiliate', name: 'Affiliate' } // NEWLY ENABLED
     ];
 
     // Temporarily disabled routes (until dependencies are fixed)
     const disabledRoutes = [
-      { path: '/api/paypal', name: 'PayPal', reason: 'Missing express-validator dependency' },
-      { path: '/api/affiliate', name: 'Affiliate', reason: 'Undefined callback functions' }
+      { path: '/api/paypal', name: 'PayPal', reason: 'Missing express-validator dependency' }
     ];
 
     // Load working routes

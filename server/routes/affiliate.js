@@ -1,13 +1,10 @@
-// server/routes/affiliate.js
+// server/routes/affiliate.js - CORRECTED VERSION
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 
-// Import middleware
-const { authenticateUser, authenticateAdmin, optionalAuth } = require('../middleware/auth');
-
-// Import controllers - ensure these are imported AFTER middleware
-const {
+// Import controllers with CORRECT function names
+const { 
   getAffiliateStatus,
   submitApplication,
   getAffiliateDashboard,
@@ -19,51 +16,48 @@ const {
 
 const {
   getAllAffiliates,
-  getAffiliateDetails,
   approveAffiliate,
   denyAffiliate,
   updateAffiliateSettings,
   getAllPromoCodes,
   createDiscountCode,
   updatePromoCode,
-  deletePromoCode,
-  processPayout,
-  getPayoutRequests
+  getAffiliateAnalytics,
+  getPayoutRequests,
+  processPayout
 } = require('../controllers/adminAffiliateController');
 
-// =============================================================================
-// RATE LIMITERS
-// =============================================================================
+// Import middleware
+const { authenticateUser, authenticateAdmin, optionalAuth } = require('../middleware/auth');
 
-// Rate limiter for affiliate applications (2 per day)
-const applicationLimiter = rateLimit({
-  windowMs: 24 * 60 * 60 * 1000, // 24 hours
-  max: 2,
-  message: 'Too many affiliate applications. Please try again tomorrow.',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Rate limiter for promo code validation (100 per hour)
+// Rate limiting configurations
 const promoValidationLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 100,
-  message: 'Too many promo code validation attempts. Please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Rate limiter for code regeneration (1 per 24 hours)
-const codeRegenerationLimiter = rateLimit({
-  windowMs: 24 * 60 * 60 * 1000, // 24 hours
-  max: 1,
-  message: 'Code regeneration is limited to once per 24 hours.',
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // 50 promo validations per window
+  message: 'Too many promo code validation attempts, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => req.user ? `user_${req.user.id}` : req.ip,
 });
 
-// Rate limiter for payout requests (1 per hour)
+const applicationLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24 hours
+  max: 3, // 3 applications per day
+  message: 'Too many affiliate applications, please try again tomorrow.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user ? `user_${req.user.id}` : req.ip,
+});
+
+const codeRegenerationLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24 hours
+  max: 1, // 1 regeneration per day
+  message: 'Code regeneration is limited to once per day.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user ? `user_${req.user.id}` : req.ip,
+});
+
 const payoutRequestLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 1,
@@ -99,7 +93,7 @@ router.get('/link/:code', async (req, res) => {
       FROM promo_codes pc
       JOIN affiliates a ON pc.affiliate_id = a.id
       JOIN users u ON a.user_id = u.id
-      WHERE pc.code = ? 
+      WHERE pc.code = ?
         AND pc.type = 'affiliate' 
         AND pc.is_active = TRUE
     `, [code.toUpperCase()]);
@@ -230,9 +224,6 @@ router.get('/referrals', authenticateUser, async (req, res) => {
 // Get all affiliates (admin)
 router.get('/admin/affiliates', authenticateAdmin, getAllAffiliates);
 
-// Get specific affiliate details (admin)
-router.get('/admin/affiliates/:affiliateId', authenticateAdmin, getAffiliateDetails);
-
 // Approve affiliate application (admin)
 router.post('/admin/affiliates/:affiliateId/approve', authenticateAdmin, approveAffiliate);
 
@@ -285,49 +276,33 @@ router.put('/admin/affiliates/:affiliateId/status', authenticateAdmin, async (re
     console.error('Error updating affiliate status:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update affiliate status'
+      message: 'Failed to update affiliate status',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 // Get all promo codes (admin)
-router.get('/admin/codes', authenticateAdmin, getAllPromoCodes);
+router.get('/admin/promo-codes', authenticateAdmin, getAllPromoCodes);
 
 // Create discount code (admin)
-router.post('/admin/codes', authenticateAdmin, createDiscountCode);
+router.post('/admin/promo-codes', authenticateAdmin, createDiscountCode);
 
 // Update promo code (admin)
-router.put('/admin/codes/:codeId', authenticateAdmin, updatePromoCode);
+router.put('/admin/promo-codes/:codeId', authenticateAdmin, updatePromoCode);
 
-// Delete promo code (admin)
-router.delete('/admin/codes/:codeId', authenticateAdmin, async (req, res) => {
+// Delete/deactivate promo code (admin)
+router.delete('/admin/promo-codes/:codeId', authenticateAdmin, async (req, res) => {
   try {
     const { codeId } = req.params;
     
-    // Lazy load the database
     const { pool } = require('../config/db');
     
-    // Check if code has been used
-    const [usageCheck] = await pool.query(
-      'SELECT COUNT(*) as usage_count FROM promo_code_usage WHERE code_id = ?',
+    // Soft delete by deactivating
+    const [result] = await pool.query(
+      'UPDATE promo_codes SET is_active = FALSE WHERE id = ?',
       [codeId]
     );
-
-    if (usageCheck[0].usage_count > 0) {
-      // Don't delete codes that have been used, just deactivate them
-      await pool.query(
-        'UPDATE promo_codes SET is_active = FALSE WHERE id = ?',
-        [codeId]
-      );
-      
-      return res.status(200).json({
-        success: true,
-        message: 'Promo code deactivated (cannot delete codes that have been used)'
-      });
-    }
-
-    // Safe to delete unused codes
-    const [result] = await pool.query('DELETE FROM promo_codes WHERE id = ?', [codeId]);
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -338,17 +313,21 @@ router.delete('/admin/codes/:codeId', authenticateAdmin, async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Promo code deleted successfully'
+      message: 'Promo code deactivated successfully'
     });
     
   } catch (error) {
-    console.error('Error deleting promo code:', error);
+    console.error('Error deactivating promo code:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete promo code'
+      message: 'Failed to deactivate promo code',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
+
+// Get affiliate analytics (admin)
+router.get('/admin/analytics', authenticateAdmin, getAffiliateAnalytics);
 
 // Get payout requests (admin)
 router.get('/admin/payouts', authenticateAdmin, getPayoutRequests);
@@ -356,27 +335,22 @@ router.get('/admin/payouts', authenticateAdmin, getPayoutRequests);
 // Process payout (admin)
 router.post('/admin/payouts/:payoutId/process', authenticateAdmin, processPayout);
 
-// Get affiliate analytics (admin)
-router.get('/admin/analytics', authenticateAdmin, async (req, res) => {
+// Get affiliate performance overview (admin)
+router.get('/admin/performance', authenticateAdmin, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     
-    // Lazy load the database
     const { pool } = require('../config/db');
     
-    // Get overall affiliate program statistics
+    // Get overall affiliate program stats
     const [overallStats] = await pool.query(`
       SELECT 
         COUNT(DISTINCT a.id) as total_affiliates,
         COUNT(DISTINCT CASE WHEN a.status = 'approved' THEN a.id END) as active_affiliates,
-        COUNT(DISTINCT CASE WHEN a.status = 'pending' THEN a.id END) as pending_affiliates,
-        SUM(a.total_paid) as total_paid_out,
-        SUM(a.balance) as total_pending_balance,
-        COUNT(DISTINCT o.id) as affiliate_orders,
-        SUM(o.total_price) as affiliate_revenue,
-        AVG(a.commission_rate) as avg_commission_rate
+        COUNT(DISTINCT CASE WHEN a.status = 'pending' THEN a.id END) as pending_applications,
+        SUM(a.balance) as total_unpaid_balance,
+        SUM(a.total_paid) as total_paid_out
       FROM affiliates a
-      LEFT JOIN orders o ON o.referring_affiliate_id = a.id
       WHERE 1=1
       ${startDate ? 'AND DATE(a.created_at) >= ?' : ''}
       ${endDate ? 'AND DATE(a.created_at) <= ?' : ''}
