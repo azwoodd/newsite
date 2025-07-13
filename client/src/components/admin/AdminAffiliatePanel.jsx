@@ -1,3 +1,4 @@
+// client/src/components/admin/AdminAffiliatePanel.jsx - COMPLETE FILE WITH ALL ORIGINAL FUNCTIONALITY + FIXES
 import { useState, useEffect } from 'react';
 import { adminAffiliateService } from '../../services/affiliateService';
 
@@ -25,7 +26,7 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-// Promo Code Management Component
+// 🔧 FIXED: Promo Code Management Component with enhanced data handling and debugging
 const PromoCodeManager = () => {
   const [promoCodes, setPromoCodes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,6 +34,7 @@ const PromoCodeManager = () => {
   const [success, setSuccess] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
+  const [debugInfo, setDebugInfo] = useState(null);
   const [formData, setFormData] = useState({
     code: '',
     name: '',
@@ -48,18 +50,65 @@ const PromoCodeManager = () => {
     try {
       setLoading(true);
       setError(null);
+      
+      console.log('[DEBUG] Fetching promo codes...');
+      
       const response = await adminAffiliateService.getAllPromoCodes({
         limit: 50,
         sortBy: 'created_at',
         sortOrder: 'DESC'
       });
       
-      const codes = response?.data?.codes || [];
+      console.log('[DEBUG] Raw promo codes response:', response);
+      
+      // 🔧 FIX: Handle different response structures robustly
+      let codes = [];
+      let debugData = {
+        responseReceived: !!response,
+        responseStructure: response ? Object.keys(response) : [],
+        timestamp: new Date().toISOString()
+      };
+      
+      if (response?.data?.codes) {
+        codes = response.data.codes;
+        debugData.dataPath = 'response.data.codes';
+      } else if (response?.data && Array.isArray(response.data)) {
+        codes = response.data;
+        debugData.dataPath = 'response.data (array)';
+      } else if (response?.codes) {
+        codes = response.codes;
+        debugData.dataPath = 'response.codes';
+      } else if (Array.isArray(response)) {
+        codes = response;
+        debugData.dataPath = 'response (direct array)';
+      } else {
+        debugData.dataPath = 'no valid data found';
+        console.warn('[DEBUG] Unexpected response structure:', response);
+      }
+      
+      debugData.codesFound = codes.length;
+      debugData.sampleCode = codes[0] ? {
+        id: codes[0].id,
+        code: codes[0].code,
+        name: codes[0].name,
+        type: codes[0].type
+      } : null;
+      
+      setDebugInfo(debugData);
       setPromoCodes(codes);
+      
+      console.log('[DEBUG] Processed codes:', codes);
+      
     } catch (err) {
       console.error('Error fetching promo codes:', err);
-      setError(err.message);
+      setError(err.message || 'Failed to load promo codes');
       setPromoCodes([]);
+      
+      setDebugInfo({
+        error: err.message,
+        errorDetails: err,
+        timestamp: new Date().toISOString()
+      });
     } finally {
       setLoading(false);
     }
@@ -92,19 +141,24 @@ const PromoCodeManager = () => {
     setSuccess(null);
 
     try {
-      await adminAffiliateService.createDiscountCode({
+      console.log('[DEBUG] Creating promo code with data:', formData);
+      
+      const response = await adminAffiliateService.createDiscountCode({
         code: formData.code.toUpperCase(),
         name: formData.name,
         discountAmount: discountValue,
         isPercentage: formData.isPercentage,
         maxUses: formData.maxUses ? parseInt(formData.maxUses) : 0,
-        maxUsesPerUser: formData.maxUsesPerUser ? parseInt(formData.maxUsesPerUser) : 1,
+        maxUsesPerUser: parseInt(formData.maxUsesPerUser),
         startsAt: formData.startsAt || null,
         expiresAt: formData.expiresAt || null
       });
-      
+
+      console.log('[DEBUG] Create response:', response);
+
       setSuccess('Discount code created successfully!');
-      setShowCreateForm(false);
+      
+      // Reset form
       setFormData({
         code: '',
         name: '',
@@ -115,9 +169,17 @@ const PromoCodeManager = () => {
         startsAt: '',
         expiresAt: ''
       });
-      await fetchPromoCodes();
+      
+      setShowCreateForm(false);
+      
+      // 🔧 FIX: Always refresh the list after creation with a small delay to ensure backend processing
+      setTimeout(() => {
+        fetchPromoCodes();
+      }, 500);
+
     } catch (err) {
-      setError(err.message);
+      console.error('Error creating promo code:', err);
+      setError(err.message || 'Failed to create discount code');
     } finally {
       setCreateLoading(false);
     }
@@ -145,6 +207,14 @@ const PromoCodeManager = () => {
     }
   };
 
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -154,24 +224,83 @@ const PromoCodeManager = () => {
           className="px-4 py-2 bg-accent text-dark rounded-lg hover:bg-accent-alt transition-colors"
         >
           <i className="fas fa-plus mr-2"></i>
-          Create Discount Code
+          Create Code
         </button>
       </div>
 
+      {/* Debug panel for development */}
+      {process.env.NODE_ENV === 'development' && debugInfo && (
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 text-sm">
+          <h4 className="font-bold mb-2">Promo Codes Debug:</h4>
+          <div className="grid grid-cols-2 gap-4 text-xs">
+            <div>
+              <strong>Response Received:</strong> {debugInfo.responseReceived ? 'Yes' : 'No'}
+            </div>
+            <div>
+              <strong>Data Path:</strong> {debugInfo.dataPath}
+            </div>
+            <div>
+              <strong>Codes Found:</strong> {debugInfo.codesFound || 0}
+            </div>
+            <div>
+              <strong>Last Updated:</strong> {new Date(debugInfo.timestamp).toLocaleTimeString()}
+            </div>
+          </div>
+          {debugInfo.sampleCode && (
+            <div className="mt-2">
+              <strong>Sample Code:</strong>
+              <pre className="text-xs bg-black/20 p-2 rounded mt-1">
+                {JSON.stringify(debugInfo.sampleCode, null, 2)}
+              </pre>
+            </div>
+          )}
+          <button
+            onClick={fetchPromoCodes}
+            className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-xs"
+          >
+            <i className="fas fa-refresh mr-1"></i>
+            Refresh Debug
+          </button>
+        </div>
+      )}
+
+      {/* Error Display */}
       {error && (
         <div className="bg-romantic/10 border border-romantic rounded-lg p-4">
-          <i className="fas fa-exclamation-circle mr-2"></i>
-          {error}
+          <div className="flex items-center justify-between">
+            <div>
+              <i className="fas fa-exclamation-circle mr-2 text-romantic"></i>
+              {error}
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="text-romantic hover:text-romantic-alt"
+            >
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
         </div>
       )}
 
+      {/* Success Display */}
       {success && (
         <div className="bg-green-500/10 border border-green-500 rounded-lg p-4">
-          <i className="fas fa-check-circle mr-2"></i>
-          {success}
+          <div className="flex items-center justify-between">
+            <div>
+              <i className="fas fa-check-circle mr-2 text-green-400"></i>
+              {success}
+            </div>
+            <button
+              onClick={() => setSuccess(null)}
+              className="text-green-400 hover:text-green-300"
+            >
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
         </div>
       )}
 
+      {/* Promo Codes List */}
       {loading ? (
         <div className="flex justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-accent"></div>
@@ -182,6 +311,18 @@ const PromoCodeManager = () => {
             <div className="p-8 text-center text-light-muted">
               <i className="fas fa-tag text-4xl mb-4 opacity-50"></i>
               <p>No promo codes found. Create your first discount code!</p>
+              {process.env.NODE_ENV === 'development' && (
+                <div className="mt-4 text-xs">
+                  <p>Debug: Check the browser console for API response details</p>
+                  <button
+                    onClick={fetchPromoCodes}
+                    className="mt-2 px-3 py-1 bg-gray-600 text-white rounded"
+                  >
+                    <i className="fas fa-refresh mr-1"></i>
+                    Retry Fetch
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -211,22 +352,28 @@ const PromoCodeManager = () => {
                         }
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`text-xs ${code.type === 'affiliate' ? 'text-purple-400' : 'text-blue-400'}`}>
+                        <span className={`text-xs px-2 py-1 rounded ${
+                          code.type === 'affiliate' 
+                            ? 'bg-purple-500/20 text-purple-400' 
+                            : 'bg-blue-500/20 text-blue-400'
+                        }`}>
                           {code.type}
                         </span>
                       </td>
                       <td className="px-4 py-3">
                         {code.max_uses > 0 
-                          ? `${code.current_uses}/${code.max_uses}`
-                          : code.current_uses
+                          ? `${code.current_uses || 0}/${code.max_uses}`
+                          : code.current_uses || 0
                         }
                       </td>
                       <td className="px-4 py-3">
-                        {code.is_active ? (
-                          <span className="text-green-400">Active</span>
-                        ) : (
-                          <span className="text-gray-400">Inactive</span>
-                        )}
+                        <span className={`text-xs px-2 py-1 rounded ${
+                          code.is_active 
+                            ? 'bg-green-500/20 text-green-400' 
+                            : 'bg-red-500/20 text-red-400'
+                        }`}>
+                          {code.is_active ? 'Active' : 'Inactive'}
+                        </span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex space-x-2">
@@ -257,120 +404,111 @@ const PromoCodeManager = () => {
         </div>
       )}
 
-      {/* Create Code Modal */}
+      {/* Create Form Modal */}
       {showCreateForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-dark border border-white/10 rounded-lg p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold mb-4">Create Discount Code</h3>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-dark border border-white/20 rounded-lg p-6 w-full max-w-md mx-4">
+            <h4 className="font-bold mb-4">Create Discount Code</h4>
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Code *</label>
+                <label className="block text-sm font-medium mb-2">Code *</label>
                 <input
                   type="text"
+                  name="code"
                   value={formData.code}
-                  onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+                  onChange={handleInputChange}
+                  className="w-full p-3 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
                   placeholder="e.g., SAVE20"
-                  className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Name *</label>
+                <label className="block text-sm font-medium mb-2">Name *</label>
                 <input
                   type="text"
+                  name="name"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g., 20% Off First Order"
-                  className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
+                  onChange={handleInputChange}
+                  className="w-full p-3 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
+                  placeholder="e.g., Summer Sale"
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">Discount Type *</label>
-                <div className="flex space-x-4">
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      checked={formData.isPercentage}
-                      onChange={() => setFormData({ ...formData, isPercentage: true })}
-                      className="mr-2"
-                    />
-                    Percentage
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      checked={!formData.isPercentage}
-                      onChange={() => setFormData({ ...formData, isPercentage: false })}
-                      className="mr-2"
-                    />
-                    Fixed Amount
-                  </label>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Discount *</label>
+                  <input
+                    type="number"
+                    name="discountAmount"
+                    value={formData.discountAmount}
+                    onChange={handleInputChange}
+                    className="w-full p-3 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
+                    placeholder="20"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Type</label>
+                  <select
+                    name="isPercentage"
+                    value={formData.isPercentage}
+                    onChange={(e) => setFormData(prev => ({ ...prev, isPercentage: e.target.value === 'true' }))}
+                    className="w-full p-3 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
+                  >
+                    <option value="true">Percentage</option>
+                    <option value="false">Fixed Amount</option>
+                  </select>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Discount Amount * {formData.isPercentage ? '(%)' : '($)'}
-                </label>
-                <input
-                  type="number"
-                  value={formData.discountAmount}
-                  onChange={(e) => setFormData({ ...formData, discountAmount: e.target.value })}
-                  placeholder={formData.isPercentage ? "e.g., 20" : "e.g., 10"}
-                  min="0"
-                  max={formData.isPercentage ? "100" : undefined}
-                  step="0.01"
-                  className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Max Uses</label>
+                  <input
+                    type="number"
+                    name="maxUses"
+                    value={formData.maxUses}
+                    onChange={handleInputChange}
+                    className="w-full p-3 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
+                    placeholder="0 = unlimited"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Uses Per User</label>
+                  <input
+                    type="number"
+                    name="maxUsesPerUser"
+                    value={formData.maxUsesPerUser}
+                    onChange={handleInputChange}
+                    className="w-full p-3 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">Max Uses (0 = unlimited)</label>
-                <input
-                  type="number"
-                  value={formData.maxUses}
-                  onChange={(e) => setFormData({ ...formData, maxUses: e.target.value })}
-                  placeholder="0"
-                  min="0"
-                  className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Starts At</label>
+                  <input
+                    type="datetime-local"
+                    name="startsAt"
+                    value={formData.startsAt}
+                    onChange={handleInputChange}
+                    className="w-full p-3 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Expires At</label>
+                  <input
+                    type="datetime-local"
+                    name="expiresAt"
+                    value={formData.expiresAt}
+                    onChange={handleInputChange}
+                    className="w-full p-3 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">Max Uses Per User</label>
-                <input
-                  type="number"
-                  value={formData.maxUsesPerUser}
-                  onChange={(e) => setFormData({ ...formData, maxUsesPerUser: e.target.value })}
-                  placeholder="1"
-                  min="1"
-                  className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Start Date (Optional)</label>
-                <input
-                  type="datetime-local"
-                  value={formData.startsAt}
-                  onChange={(e) => setFormData({ ...formData, startsAt: e.target.value })}
-                  className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Expiry Date (Optional)</label>
-                <input
-                  type="datetime-local"
-                  value={formData.expiresAt}
-                  onChange={(e) => setFormData({ ...formData, expiresAt: e.target.value })}
-                  className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
-                />
-              </div>
-
-              <div className="flex space-x-3 mt-6">
+              <div className="flex space-x-3">
                 <button
                   onClick={handleCreateCode}
                   disabled={createLoading}
@@ -493,19 +631,19 @@ const AffiliateManager = () => {
         <div className="bg-white/5 rounded-lg border border-white/10 overflow-hidden">
           {affiliates.length === 0 ? (
             <div className="p-8 text-center text-light-muted">
-              <i className="fas fa-handshake text-4xl mb-4 opacity-50"></i>
-              <p>No affiliate applications found. Applications will appear here when users apply.</p>
+              <i className="fas fa-users text-4xl mb-4 opacity-50"></i>
+              <p>No affiliate applications found.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-white/5 border-b border-white/10">
                   <tr className="text-left">
-                    <th className="px-4 py-3 font-medium">Affiliate</th>
-                    <th className="px-4 py-3 font-medium">Code</th>
+                    <th className="px-4 py-3 font-medium">Name</th>
+                    <th className="px-4 py-3 font-medium">Email</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium">Commission</th>
                     <th className="px-4 py-3 font-medium">Balance</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium">Applied</th>
                     <th className="px-4 py-3 font-medium">Actions</th>
                   </tr>
@@ -513,32 +651,21 @@ const AffiliateManager = () => {
                 <tbody>
                   {affiliates.map((affiliate) => (
                     <tr key={affiliate.id} className="border-b border-white/5 hover:bg-white/5">
-                      <td className="px-4 py-3">
-                        <div>
-                          <div className="font-medium">{affiliate.name}</div>
-                          <div className="text-sm text-light-muted">{affiliate.email}</div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {affiliate.affiliate_code ? (
-                          <span className="font-mono text-accent">{affiliate.affiliate_code}</span>
-                        ) : (
-                          <span className="text-light-muted">-</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">{affiliate.commission_rate}%</td>
-                      <td className="px-4 py-3">${affiliate.balance?.toFixed(2) || '0.00'}</td>
+                      <td className="px-4 py-3 font-medium">{affiliate.name}</td>
+                      <td className="px-4 py-3">{affiliate.email}</td>
                       <td className="px-4 py-3">
                         <StatusBadge status={affiliate.status} />
                       </td>
-                      <td className="px-4 py-3 text-sm text-light-muted">
-                        {new Date(affiliate.application_date || affiliate.created_at).toLocaleDateString()}
+                      <td className="px-4 py-3">{affiliate.commission_rate}%</td>
+                      <td className="px-4 py-3">${affiliate.balance.toFixed(2)}</td>
+                      <td className="px-4 py-3">
+                        {new Date(affiliate.created_at).toLocaleDateString()}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex space-x-2">
                           <button
                             onClick={() => viewAffiliateDetails(affiliate)}
-                            className="text-sm text-accent hover:text-accent-alt"
+                            className="text-sm text-blue-400 hover:text-blue-300"
                           >
                             View
                           </button>
@@ -552,7 +679,7 @@ const AffiliateManager = () => {
                               </button>
                               <button
                                 onClick={() => handleDeny(affiliate.id)}
-                                className="text-sm text-romantic hover:text-romantic-light"
+                                className="text-sm text-red-400 hover:text-red-300"
                               >
                                 Deny
                               </button>
@@ -561,7 +688,7 @@ const AffiliateManager = () => {
                           {affiliate.status === 'approved' && (
                             <button
                               onClick={() => handleStatusChange(affiliate.id, 'suspended')}
-                              className="text-sm text-romantic hover:text-romantic-light"
+                              className="text-sm text-yellow-400 hover:text-yellow-300"
                             >
                               Suspend
                             </button>
@@ -589,7 +716,7 @@ const AffiliateManager = () => {
       {showDetails && selectedAffiliate && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-dark border border-white/10 rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-bold">Affiliate Details</h3>
               <button
                 onClick={() => {

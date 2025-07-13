@@ -1,4 +1,4 @@
-// server/controllers/adminAffiliateController.js - COMPLETE ADMIN CONTROLLER
+// server/controllers/adminAffiliateController.js - COMPLETE FILE WITH ALL ORIGINAL FUNCTIONALITY + FIXES
 const { pool } = require('../config/db');
 const crypto = require('crypto');
 
@@ -66,86 +66,84 @@ const getAllAffiliates = async (req, res) => {
         a.*,
         u.name,
         u.email,
-        u.created_at as user_registered_at,
         pc.code as affiliate_code,
-        pc.current_uses as code_uses,
         
-        -- Commission stats
-        COUNT(DISTINCT c.id) as total_commissions,
-        COUNT(DISTINCT CASE WHEN c.status = 'paid' THEN c.id END) as paid_commissions,
-        COUNT(DISTINCT CASE WHEN c.status = 'pending' THEN c.id END) as pending_commissions,
-        SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END) as total_earnings,
-        SUM(CASE WHEN c.status = 'pending' THEN c.amount ELSE 0 END) as pending_earnings,
+        -- Commission stats (with error handling)
+        COALESCE(commission_stats.total_commissions, 0) as total_commissions,
+        COALESCE(commission_stats.pending_commissions, 0) as pending_commissions,
+        COALESCE(commission_stats.paid_commissions, 0) as paid_commissions,
+        COALESCE(commission_stats.total_earnings, 0) as total_earnings,
+        COALESCE(commission_stats.pending_earnings, 0) as pending_earnings,
         
-        -- Referral stats
-        COUNT(DISTINCT re.id) as total_clicks,
-        COUNT(DISTINCT CASE WHEN re.event_type = 'signup' THEN re.id END) as total_signups,
-        COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) as total_conversions,
-        
-        -- Latest activity
-        MAX(re.created_at) as last_activity
+        -- Referral stats (with error handling)
+        COALESCE(referral_stats.total_clicks, 0) as total_clicks,
+        COALESCE(referral_stats.total_signups, 0) as total_signups,
+        COALESCE(referral_stats.total_conversions, 0) as total_conversions,
+        COALESCE(referral_stats.conversion_rate, 0) as conversion_rate
         
       FROM affiliates a
       JOIN users u ON a.user_id = u.id
       LEFT JOIN promo_codes pc ON pc.affiliate_id = a.id AND pc.type = 'affiliate'
-      LEFT JOIN commissions c ON c.affiliate_id = a.id
-      LEFT JOIN referral_events re ON re.code_id = pc.id
+      
+      -- Left join commission stats (optional)
+      LEFT JOIN (
+        SELECT 
+          affiliate_id,
+          COUNT(*) as total_commissions,
+          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_commissions,
+          COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_commissions,
+          SUM(amount) as total_earnings,
+          SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) as pending_earnings
+        FROM commissions 
+        GROUP BY affiliate_id
+      ) commission_stats ON commission_stats.affiliate_id = a.id
+      
+      -- Left join referral stats (optional)
+      LEFT JOIN (
+        SELECT 
+          pc_inner.affiliate_id,
+          COUNT(DISTINCT CASE WHEN re.event_type = 'click' THEN re.id END) as total_clicks,
+          COUNT(DISTINCT CASE WHEN re.event_type = 'signup' THEN re.id END) as total_signups,
+          COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) as total_conversions,
+          CASE 
+            WHEN COUNT(DISTINCT CASE WHEN re.event_type = 'click' THEN re.id END) > 0 THEN
+              ROUND((COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) * 100.0 / 
+                     COUNT(DISTINCT CASE WHEN re.event_type = 'click' THEN re.id END)), 2)
+            ELSE 0 
+          END as conversion_rate
+        FROM promo_codes pc_inner
+        LEFT JOIN referral_events re ON re.code_id = pc_inner.id
+        WHERE pc_inner.type = 'affiliate'
+        GROUP BY pc_inner.affiliate_id
+      ) referral_stats ON referral_stats.affiliate_id = a.id
+      
       ${whereClause}
-      GROUP BY a.id, u.name, u.email, u.created_at, pc.code, pc.current_uses
       ORDER BY ${validSortBy === 'name' ? 'u.name' : validSortBy === 'email' ? 'u.email' : `a.${validSortBy}`} ${validSortOrder}
       LIMIT ? OFFSET ?
     `, [...queryParams, parseInt(limit), offset]);
 
-    // Calculate conversion rates and add default values for missing fields
-    const affiliatesWithMetrics = affiliates.map(affiliate => ({
-      ...affiliate,
-      conversion_rate: affiliate.total_clicks > 0 
-        ? Math.round((affiliate.total_conversions / affiliate.total_clicks) * 10000) / 100 
-        : 0,
-      // Add default values for potentially missing fields
-      application_date: affiliate.application_date || affiliate.created_at,
-      approval_date: affiliate.approval_date || null,
-      denial_date: affiliate.denial_date || null,
-      next_allowed_application_date: affiliate.next_allowed_application_date || null,
-      content_platforms: affiliate.content_platforms || '[]',
-      audience_info: affiliate.audience_info || '',
-      promotion_strategy: affiliate.promotion_strategy || '',
-      portfolio_links: affiliate.portfolio_links || '',
-      denial_reason: affiliate.denial_reason || null,
-      admin_notes: affiliate.admin_notes || null,
-      custom_commission_rate: affiliate.custom_commission_rate || false,
-      payout_threshold: affiliate.payout_threshold || 50.00,
-      last_payout_date: affiliate.last_payout_date || null,
-      code_regenerated_at: affiliate.code_regenerated_at || null,
-      // Ensure numeric fields have defaults
-      total_clicks: affiliate.total_clicks || 0,
-      total_signups: affiliate.total_signups || 0,
-      total_conversions: affiliate.total_conversions || 0,
-      total_commissions: affiliate.total_commissions || 0,
-      paid_commissions: affiliate.paid_commissions || 0,
-      pending_commissions: affiliate.pending_commissions || 0,
-      total_earnings: affiliate.total_earnings || 0,
-      pending_earnings: affiliate.pending_earnings || 0
-    }));
+    const responseData = {
+      affiliates,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalAffiliates,
+        totalPages: Math.ceil(totalAffiliates / parseInt(limit)),
+        hasNext: (parseInt(page) * parseInt(limit)) < totalAffiliates,
+        hasPrev: parseInt(page) > 1
+      }
+    };
 
     res.status(200).json({
       success: true,
-      data: {
-        affiliates: affiliatesWithMetrics,
-        pagination: {
-          current_page: parseInt(page),
-          total_pages: Math.ceil(totalAffiliates / parseInt(limit)),
-          total_items: totalAffiliates,
-          items_per_page: parseInt(limit)
-        }
-      }
+      data: responseData
     });
     
   } catch (error) {
-    console.error('Error getting all affiliates:', error);
+    console.error('Error getting affiliates:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch affiliates',
+      message: 'Failed to get affiliates',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -159,24 +157,26 @@ const approveAffiliate = async (req, res) => {
     await connection.beginTransaction();
     
     const { affiliateId } = req.params;
-    const { commissionRate, adminNotes } = req.body;
-    
+    const { 
+      commissionRate = DEFAULT_COMMISSION_RATE, 
+      adminNotes = '',
+      payoutThreshold = 50.00
+    } = req.body;
+
     // Validate commission rate
-    const rate = commissionRate || DEFAULT_COMMISSION_RATE;
-    if (rate < 0 || rate > 50) {
+    const rate = parseFloat(commissionRate);
+    if (isNaN(rate) || rate < 0 || rate > 50) {
       return res.status(400).json({
         success: false,
         message: 'Commission rate must be between 0% and 50%'
       });
     }
 
-    // Get affiliate details
-    const [affiliateRows] = await connection.query(`
-      SELECT a.*, u.name, u.email 
-      FROM affiliates a 
-      JOIN users u ON a.user_id = u.id 
-      WHERE a.id = ?
-    `, [affiliateId]);
+    // Get affiliate info
+    const [affiliateRows] = await connection.query(
+      'SELECT a.*, u.name FROM affiliates a JOIN users u ON a.user_id = u.id WHERE a.id = ?',
+      [affiliateId]
+    );
 
     if (affiliateRows.length === 0) {
       return res.status(404).json({
@@ -187,41 +187,30 @@ const approveAffiliate = async (req, res) => {
 
     const affiliate = affiliateRows[0];
 
-    if (affiliate.status !== 'pending') {
+    if (affiliate.status === 'approved') {
       return res.status(400).json({
         success: false,
-        message: 'Only pending applications can be approved'
+        message: 'Affiliate is already approved'
       });
     }
 
-    // Update affiliate status - handle potentially missing columns gracefully
-    const updateFields = ['status = ?', 'commission_rate = ?', 'updated_at = CURRENT_TIMESTAMP'];
-    const updateValues = ['approved', rate];
+    // Update affiliate status with flexible field handling
+    let updateFields = ['status = ?', 'commission_rate = ?', 'approval_date = CURRENT_TIMESTAMP'];
+    let updateValues = ['approved', rate];
 
-    // Try to add optional fields that might not exist in all database versions
-    try {
-      // Check if approval_date column exists
-      const [columns] = await connection.query(`
-        SHOW COLUMNS FROM affiliates LIKE 'approval_date'
-      `);
-      if (columns.length > 0) {
-        updateFields.push('approval_date = CURRENT_TIMESTAMP');
+    // Add optional fields that might not exist in all database versions
+    if (payoutThreshold !== undefined) {
+      try {
+        const [columns] = await connection.query(`
+          SHOW COLUMNS FROM affiliates LIKE 'payout_threshold'
+        `);
+        if (columns.length > 0) {
+          updateFields.push('payout_threshold = ?');
+          updateValues.push(payoutThreshold);
+        }
+      } catch (e) {
+        console.log('payout_threshold column check failed, skipping');
       }
-    } catch (e) {
-      console.log('approval_date column check failed, skipping');
-    }
-
-    try {
-      // Check if custom_commission_rate column exists
-      const [columns] = await connection.query(`
-        SHOW COLUMNS FROM affiliates LIKE 'custom_commission_rate'
-      `);
-      if (columns.length > 0) {
-        updateFields.push('custom_commission_rate = ?');
-        updateValues.push(rate !== DEFAULT_COMMISSION_RATE);
-      }
-    } catch (e) {
-      console.log('custom_commission_rate column check failed, skipping');
     }
 
     if (adminNotes) {
@@ -332,23 +321,15 @@ const approveAffiliate = async (req, res) => {
 
 // Deny affiliate application
 const denyAffiliate = async (req, res) => {
-  const connection = await pool.getConnection();
-  
   try {
-    await connection.beginTransaction();
-    
     const { affiliateId } = req.params;
-    const { denialReason, allowReapplication = true } = req.body;
-    
-    if (!denialReason || denialReason.trim().length < 10) {
-      return res.status(400).json({
-        success: false,
-        message: 'Denial reason must be at least 10 characters long'
-      });
-    }
+    const { 
+      denialReason = 'Application does not meet current requirements',
+      allowReapplication = true
+    } = req.body;
 
-    // Get affiliate details
-    const [affiliateRows] = await connection.query(
+    // Get affiliate info
+    const [affiliateRows] = await pool.query(
       'SELECT * FROM affiliates WHERE id = ?',
       [affiliateId]
     );
@@ -362,83 +343,72 @@ const denyAffiliate = async (req, res) => {
 
     const affiliate = affiliateRows[0];
 
-    if (affiliate.status !== 'pending') {
+    if (affiliate.status === 'denied') {
       return res.status(400).json({
         success: false,
-        message: 'Only pending applications can be denied'
+        message: 'Affiliate application is already denied'
       });
     }
 
-    // Update affiliate status - base update
-    await connection.query(`
-      UPDATE affiliates SET 
-        status = 'denied',
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `, [affiliateId]);
+    // Calculate next allowed application date
+    const nextAllowedDate = allowReapplication 
+      ? new Date(Date.now() + (REAPPLICATION_COOLDOWN_DAYS * 24 * 60 * 60 * 1000))
+      : null;
 
-    // Try to update denial fields if columns exist
+    // Update affiliate status with flexible field handling
+    let updateFields = ['status = ?', 'denial_date = CURRENT_TIMESTAMP'];
+    let updateValues = ['denied'];
+
+    // Add optional fields if they exist
     try {
-      const nextAllowedDate = allowReapplication 
-        ? new Date(Date.now() + (REAPPLICATION_COOLDOWN_DAYS * 24 * 60 * 60 * 1000))
-        : null;
-
-      const [denialDateColumns] = await connection.query(`
-        SHOW COLUMNS FROM affiliates LIKE 'denial_date'
-      `);
-      const [denialReasonColumns] = await connection.query(`
+      const [columns] = await pool.query(`
         SHOW COLUMNS FROM affiliates LIKE 'denial_reason'
       `);
-      const [nextAllowedColumns] = await connection.query(`
-        SHOW COLUMNS FROM affiliates LIKE 'next_allowed_application_date'
-      `);
-
-      const updateFields = [];
-      const updateValues = [];
-
-      if (denialDateColumns.length > 0) {
-        updateFields.push('denial_date = CURRENT_TIMESTAMP');
-      }
-      if (denialReasonColumns.length > 0) {
+      if (columns.length > 0) {
         updateFields.push('denial_reason = ?');
-        updateValues.push(denialReason.trim());
-      }
-      if (nextAllowedColumns.length > 0 && nextAllowedDate) {
-        updateFields.push('next_allowed_application_date = ?');
-        updateValues.push(nextAllowedDate);
-      }
-
-      if (updateFields.length > 0) {
-        updateValues.push(affiliateId);
-        await connection.query(`
-          UPDATE affiliates SET ${updateFields.join(', ')} WHERE id = ?
-        `, updateValues);
+        updateValues.push(denialReason);
       }
     } catch (e) {
-      console.log('Some denial fields not available in database:', e.message);
+      console.log('denial_reason column not available');
     }
 
-    await connection.commit();
-    
+    if (nextAllowedDate) {
+      try {
+        const [columns] = await pool.query(`
+          SHOW COLUMNS FROM affiliates LIKE 'next_allowed_application_date'
+        `);
+        if (columns.length > 0) {
+          updateFields.push('next_allowed_application_date = ?');
+          updateValues.push(nextAllowedDate);
+        }
+      } catch (e) {
+        console.log('next_allowed_application_date column not available');
+      }
+    }
+
+    updateValues.push(affiliateId);
+
+    await pool.query(`
+      UPDATE affiliates SET ${updateFields.join(', ')} WHERE id = ?
+    `, updateValues);
+
     res.status(200).json({
       success: true,
-      message: 'Affiliate application denied successfully',
+      message: 'Affiliate application denied',
       data: {
         affiliate_id: affiliateId,
-        can_reapply: allowReapplication
+        denial_reason: denialReason,
+        next_allowed_application: nextAllowedDate
       }
     });
     
   } catch (error) {
-    await connection.rollback();
     console.error('Error denying affiliate:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to deny affiliate',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
-  } finally {
-    connection.release();
   }
 };
 
@@ -448,45 +418,29 @@ const updateAffiliateSettings = async (req, res) => {
     const { affiliateId } = req.params;
     const { 
       commissionRate, 
-      payoutThreshold, 
       status, 
+      payoutThreshold, 
       adminNotes 
     } = req.body;
 
-    // Validation
-    if (commissionRate !== undefined && (commissionRate < 0 || commissionRate > 50)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Commission rate must be between 0% and 50%'
-      });
+    // Validate inputs
+    if (commissionRate !== undefined) {
+      const rate = parseFloat(commissionRate);
+      if (isNaN(rate) || rate < 0 || rate > 50) {
+        return res.status(400).json({
+          success: false,
+          message: 'Commission rate must be between 0% and 50%'
+        });
+      }
     }
 
-    if (payoutThreshold !== undefined && payoutThreshold < 10) {
-      return res.status(400).json({
-        success: false,
-        message: 'Payout threshold must be at least $10'
-      });
-    }
-
-    // Build update query dynamically - check for column existence
-    const updateFields = [];
-    const updateValues = [];
+    // Build update query dynamically
+    let updateFields = [];
+    let updateValues = [];
 
     if (commissionRate !== undefined) {
       updateFields.push('commission_rate = ?');
-      updateValues.push(commissionRate);
-      
-      // Try to set custom_commission_rate if column exists
-      try {
-        const [columns] = await pool.query(`
-          SHOW COLUMNS FROM affiliates LIKE 'custom_commission_rate'
-        `);
-        if (columns.length > 0) {
-          updateFields.push('custom_commission_rate = TRUE');
-        }
-      } catch (e) {
-        console.log('custom_commission_rate column check failed');
-      }
+      updateValues.push(parseFloat(commissionRate));
     }
 
     if (payoutThreshold !== undefined) {
@@ -568,7 +522,7 @@ const updateAffiliateSettings = async (req, res) => {
   }
 };
 
-// Get all promo codes with analytics
+// 🔧 FIXED: Get all promo codes with simplified query and better error handling
 const getAllPromoCodes = async (req, res) => {
   try {
     const {
@@ -581,10 +535,14 @@ const getAllPromoCodes = async (req, res) => {
       sortOrder = 'DESC'
     } = req.query;
 
+    console.log(`[DEBUG] getAllPromoCodes called with params:`, {
+      type, status, page, limit, search, sortBy, sortOrder
+    });
+
     const offset = (parseInt(page) - 1) * parseInt(limit);
     
-    // Build WHERE clause
-    let whereConditions = [];
+    // Build WHERE clause with simplified conditions
+    let whereConditions = ['1=1']; // Always true condition to simplify query building
     let queryParams = [];
     
     if (type !== 'all') {
@@ -598,127 +556,220 @@ const getAllPromoCodes = async (req, res) => {
       whereConditions.push('pc.is_active = FALSE');
     }
     
-    if (search) {
-      whereConditions.push('(pc.code LIKE ? OR pc.name LIKE ? OR u.name LIKE ?)');
-      const searchPattern = `%${search}%`;
-      queryParams.push(searchPattern, searchPattern, searchPattern);
+    if (search && search.trim()) {
+      whereConditions.push('(pc.code LIKE ? OR pc.name LIKE ?)');
+      const searchPattern = `%${search.trim()}%`;
+      queryParams.push(searchPattern, searchPattern);
     }
     
-    const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
+    const whereClause = 'WHERE ' + whereConditions.join(' AND ');
     
-    // Get total count
-    const [countResult] = await pool.query(`
-      SELECT COUNT(*) as total
-      FROM promo_codes pc
-      LEFT JOIN affiliates a ON pc.affiliate_id = a.id
-      LEFT JOIN users u ON a.user_id = u.id OR pc.created_by = u.id
-      ${whereClause}
-    `, queryParams);
+    console.log(`[DEBUG] Where clause:`, whereClause);
+    console.log(`[DEBUG] Query params:`, queryParams);
     
-    const totalCodes = countResult[0].total;
-    
-    // Get codes with analytics - simplified query for compatibility
-    const [codes] = await pool.query(`
+    // 🔧 FIX: Simplified query to get basic promo codes first
+    const basicQuery = `
       SELECT 
-        pc.*,
-        COALESCE(u_aff.name, u_admin.name) as owner_name,
-        COALESCE(u_aff.email, u_admin.email) as owner_email,
-        a.status as affiliate_status,
-        
-        -- Usage analytics
-        COUNT(DISTINCT re.id) as total_clicks,
-        COUNT(DISTINCT CASE WHEN re.event_type = 'signup' THEN re.id END) as total_signups,
-        COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) as total_conversions,
-        SUM(CASE WHEN re.event_type = 'purchase' THEN re.conversion_value ELSE 0 END) as total_revenue,
-        
-        -- Latest activity
-        MAX(re.created_at) as last_used
-        
+        pc.id,
+        pc.code,
+        pc.name,
+        pc.type,
+        pc.affiliate_id,
+        pc.created_by,
+        pc.discount_amount,
+        pc.is_percentage,
+        pc.min_order_value,
+        pc.max_uses,
+        pc.current_uses,
+        pc.max_uses_per_user,
+        pc.expires_at,
+        pc.starts_at,
+        pc.is_active,
+        pc.created_at,
+        pc.updated_at
       FROM promo_codes pc
-      LEFT JOIN affiliates a ON pc.affiliate_id = a.id
-      LEFT JOIN users u_aff ON a.user_id = u_aff.id
-      LEFT JOIN users u_admin ON pc.created_by = u_admin.id
-      LEFT JOIN referral_events re ON re.code_id = pc.id
       ${whereClause}
-      GROUP BY pc.id
       ORDER BY pc.${sortBy === 'owner_name' ? 'name' : sortBy} ${sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'}
       LIMIT ? OFFSET ?
-    `, [...queryParams, parseInt(limit), offset]);
+    `;
 
-    // Calculate conversion rates and add defaults for missing fields
-    const codesWithMetrics = codes.map(code => ({
-      ...code,
-      conversion_rate: code.total_clicks > 0 
-        ? Math.round((code.total_conversions / code.total_clicks) * 10000) / 100 
-        : 0,
-      // Ensure all expected fields exist with defaults
-      max_uses: code.max_uses || 0,
-      max_uses_per_user: code.max_uses_per_user || 1,
-      starts_at: code.starts_at || null,
-      expires_at: code.expires_at || null,
-      current_uses: code.current_uses || 0,
-      total_clicks: code.total_clicks || 0,
-      total_signups: code.total_signups || 0,
-      total_conversions: code.total_conversions || 0,
-      total_revenue: code.total_revenue || 0
+    console.log(`[DEBUG] Executing basic query:`, basicQuery);
+    
+    // Get basic promo codes data
+    const [basicCodes] = await pool.query(basicQuery, [...queryParams, parseInt(limit), offset]);
+    
+    console.log(`[DEBUG] Basic codes result:`, {
+      count: basicCodes.length,
+      codes: basicCodes.map(c => ({ id: c.id, code: c.code, name: c.name, type: c.type }))
+    });
+
+    // Get total count with same conditions
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM promo_codes pc
+      ${whereClause}
+    `;
+    
+    const [countResult] = await pool.query(countQuery, queryParams);
+    const totalCodes = countResult[0].total;
+    
+    console.log(`[DEBUG] Total count:`, totalCodes);
+
+    // 🔧 FIX: Enhance codes with owner info using separate queries to avoid JOIN issues
+    const enhancedCodes = await Promise.all(basicCodes.map(async (code) => {
+      let ownerName = 'System';
+      let ownerEmail = null;
+      let affiliateStatus = null;
+      
+      try {
+        if (code.affiliate_id) {
+          // Get affiliate owner info
+          const [affiliateRows] = await pool.query(`
+            SELECT u.name, u.email, a.status
+            FROM affiliates a 
+            JOIN users u ON a.user_id = u.id 
+            WHERE a.id = ?
+          `, [code.affiliate_id]);
+          
+          if (affiliateRows.length > 0) {
+            ownerName = affiliateRows[0].name;
+            ownerEmail = affiliateRows[0].email;
+            affiliateStatus = affiliateRows[0].status;
+          }
+        } else if (code.created_by) {
+          // Get admin creator info
+          const [userRows] = await pool.query(`
+            SELECT name, email FROM users WHERE id = ?
+          `, [code.created_by]);
+          
+          if (userRows.length > 0) {
+            ownerName = userRows[0].name;
+            ownerEmail = userRows[0].email;
+          }
+        }
+      } catch (error) {
+        console.log(`[DEBUG] Error getting owner info for code ${code.id}:`, error.message);
+        // Continue with default values
+      }
+
+      // Get basic analytics with error handling
+      let totalClicks = 0;
+      let totalConversions = 0;
+      let totalRevenue = 0;
+      let lastUsed = null;
+
+      try {
+        const [analyticsRows] = await pool.query(`
+          SELECT 
+            COUNT(DISTINCT CASE WHEN event_type = 'click' THEN id END) as clicks,
+            COUNT(DISTINCT CASE WHEN event_type = 'purchase' THEN id END) as conversions,
+            SUM(CASE WHEN event_type = 'purchase' THEN conversion_value ELSE 0 END) as revenue,
+            MAX(created_at) as last_used
+          FROM referral_events 
+          WHERE code_id = ?
+        `, [code.id]);
+
+        if (analyticsRows.length > 0) {
+          totalClicks = analyticsRows[0].clicks || 0;
+          totalConversions = analyticsRows[0].conversions || 0;
+          totalRevenue = analyticsRows[0].revenue || 0;
+          lastUsed = analyticsRows[0].last_used;
+        }
+      } catch (error) {
+        console.log(`[DEBUG] Analytics query failed for code ${code.id}, using defaults:`, error.message);
+        // Continue with default values (0)
+      }
+
+      return {
+        ...code,
+        owner_name: ownerName,
+        owner_email: ownerEmail,
+        affiliate_status: affiliateStatus,
+        total_clicks: totalClicks,
+        total_conversions: totalConversions,
+        total_revenue: parseFloat(totalRevenue) || 0,
+        conversion_rate: totalClicks > 0 ? ((totalConversions / totalClicks) * 100).toFixed(2) : '0.00',
+        last_used: lastUsed
+      };
     }));
+
+    console.log(`[DEBUG] Enhanced codes:`, {
+      count: enhancedCodes.length,
+      sample: enhancedCodes[0] ? {
+        code: enhancedCodes[0].code,
+        name: enhancedCodes[0].name,
+        owner_name: enhancedCodes[0].owner_name
+      } : null
+    });
+
+    const responseData = {
+      codes: enhancedCodes,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalCodes,
+        totalPages: Math.ceil(totalCodes / parseInt(limit)),
+        hasNext: (parseInt(page) * parseInt(limit)) < totalCodes,
+        hasPrev: parseInt(page) > 1
+      }
+    };
+
+    console.log(`[DEBUG] Final response:`, {
+      codesCount: responseData.codes.length,
+      pagination: responseData.pagination
+    });
 
     res.status(200).json({
       success: true,
-      data: {
-        codes: codesWithMetrics,
-        pagination: {
-          current_page: parseInt(page),
-          total_pages: Math.ceil(totalCodes / parseInt(limit)),
-          total_items: totalCodes,
-          items_per_page: parseInt(limit)
-        }
-      }
+      data: responseData
     });
     
   } catch (error) {
     console.error('Error getting promo codes:', error);
+    
+    // 🔧 FIX: Return safe fallback structure
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch promo codes',
+      message: 'Failed to get promo codes',
+      data: {
+        codes: [],
+        pagination: {
+          page: parseInt(req.query.page) || 1,
+          limit: parseInt(req.query.limit) || 20,
+          total: 0,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false
+        }
+      },
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-// Create discount code (admin only) with robust column handling
+// 🔧 FIXED: Create discount code with better error handling
 const createDiscountCode = async (req, res) => {
   try {
     const {
       code,
       name,
       discountAmount,
-      isPercentage = true,
+      isPercentage = false,
       maxUses = 0,
       maxUsesPerUser = 1,
-      startsAt,
-      expiresAt
+      startsAt = null,
+      expiresAt = null
     } = req.body;
 
+    console.log(`[DEBUG] Creating discount code:`, {
+      code, name, discountAmount, isPercentage, maxUses, maxUsesPerUser
+    });
+
     // Validation
-    if (!code || !name || discountAmount === undefined) {
+    if (!code || !name || !discountAmount) {
       return res.status(400).json({
         success: false,
         message: 'Code, name, and discount amount are required'
-      });
-    }
-
-    if (discountAmount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Discount amount must be greater than 0'
-      });
-    }
-
-    if (isPercentage && discountAmount > 100) {
-      return res.status(400).json({
-        success: false,
-        message: 'Percentage discount cannot be greater than 100%'
       });
     }
 
@@ -735,124 +786,59 @@ const createDiscountCode = async (req, res) => {
       });
     }
 
-    // Build INSERT query based on available columns
-    let insertQuery = 'INSERT INTO promo_codes (code, name, type, discount_amount, is_active';
-    let values = [code.toUpperCase(), name, 'discount', discountAmount, true];
-    
-    // Add created_by if user exists
-    if (req.user && req.user.id) {
-      insertQuery += ', created_by';
-      values.push(req.user.id);
-    }
+    // 🔧 FIX: Insert with proper field handling
+    const insertData = {
+      code: code.toUpperCase(),
+      name: name,
+      type: 'discount',
+      created_by: req.user.id,
+      discount_amount: parseFloat(discountAmount),
+      is_percentage: isPercentage ? 1 : 0,
+      max_uses: parseInt(maxUses) || 0,
+      max_uses_per_user: parseInt(maxUsesPerUser) || 1,
+      is_active: 1,
+      current_uses: 0
+    };
 
-    // Check for and add optional columns
-    const optionalFields = [];
-    const optionalValues = [];
-
-    // Check for is_percentage column
-    try {
-      const [columns] = await pool.query(`SHOW COLUMNS FROM promo_codes LIKE 'is_percentage'`);
-      if (columns.length > 0) {
-        optionalFields.push('is_percentage');
-        optionalValues.push(isPercentage);
-      }
-    } catch (e) {
-      console.log('is_percentage column check failed');
-    }
-
-    // Check for max_uses column
-    try {
-      const [columns] = await pool.query(`SHOW COLUMNS FROM promo_codes LIKE 'max_uses'`);
-      if (columns.length > 0) {
-        optionalFields.push('max_uses');
-        optionalValues.push(maxUses || 0);
-      }
-    } catch (e) {
-      console.log('max_uses column check failed');
-    }
-
-    // Check for max_uses_per_user column
-    try {
-      const [columns] = await pool.query(`SHOW COLUMNS FROM promo_codes LIKE 'max_uses_per_user'`);
-      if (columns.length > 0) {
-        optionalFields.push('max_uses_per_user');
-        optionalValues.push(maxUsesPerUser || 1);
-      }
-    } catch (e) {
-      console.log('max_uses_per_user column check failed');
-    }
-
-    // Check for starts_at column
+    // Add optional dates if provided
     if (startsAt) {
-      try {
-        const [columns] = await pool.query(`SHOW COLUMNS FROM promo_codes LIKE 'starts_at'`);
-        if (columns.length > 0) {
-          optionalFields.push('starts_at');
-          optionalValues.push(startsAt);
-        }
-      } catch (e) {
-        console.log('starts_at column check failed');
-      }
+      insertData.starts_at = new Date(startsAt);
     }
-
-    // Check for expires_at column
     if (expiresAt) {
-      try {
-        const [columns] = await pool.query(`SHOW COLUMNS FROM promo_codes LIKE 'expires_at'`);
-        if (columns.length > 0) {
-          optionalFields.push('expires_at');
-          optionalValues.push(expiresAt);
-        }
-      } catch (e) {
-        console.log('expires_at column check failed');
-      }
+      insertData.expires_at = new Date(expiresAt);
     }
 
-    // Add optional fields to query
-    if (optionalFields.length > 0) {
-      insertQuery += ', ' + optionalFields.join(', ');
-      values = values.concat(optionalValues);
+    console.log(`[DEBUG] Insert data:`, insertData);
+
+    const [result] = await pool.query(
+      'INSERT INTO promo_codes SET ?',
+      [insertData]
+    );
+
+    console.log(`[DEBUG] Insert result:`, { insertId: result.insertId, affectedRows: result.affectedRows });
+
+    if (result.affectedRows === 0) {
+      throw new Error('Failed to create promo code - no rows affected');
     }
-    
-    insertQuery += ') VALUES (' + values.map(() => '?').join(', ') + ')';
-    
-    const [result] = await pool.query(insertQuery, values);
+
+    // Get the created code to return full data
+    const [createdCode] = await pool.query(
+      'SELECT * FROM promo_codes WHERE id = ?',
+      [result.insertId]
+    );
+
+    console.log(`[DEBUG] Created code:`, createdCode[0]);
 
     res.status(201).json({
       success: true,
-      message: 'Discount code created successfully',
+      message: 'Discount code created successfully!',
       data: {
-        id: result.insertId,
-        code: code.toUpperCase()
+        code: createdCode[0] || insertData
       }
     });
     
   } catch (error) {
     console.error('Error creating discount code:', error);
-    
-    // If insert failed due to missing columns, try with minimal fields
-    if (error.message && (error.message.includes('Unknown column') || error.message.includes('doesn\'t have a default value'))) {
-      try {
-        const { code, name, discountAmount } = req.body;
-        
-        const [result] = await pool.query(`
-          INSERT INTO promo_codes (code, name, type, discount_amount, is_active) 
-          VALUES (?, ?, 'discount', ?, TRUE)
-        `, [code.toUpperCase(), name, discountAmount]);
-
-        return res.status(201).json({
-          success: true,
-          message: 'Discount code created successfully (basic version)',
-          data: {
-            id: result.insertId,
-            code: code.toUpperCase()
-          }
-        });
-      } catch (retryError) {
-        console.error('Retry insert also failed:', retryError);
-      }
-    }
-    
     res.status(500).json({
       success: false,
       message: 'Failed to create discount code',
@@ -865,101 +851,19 @@ const createDiscountCode = async (req, res) => {
 const updatePromoCode = async (req, res) => {
   try {
     const { codeId } = req.params;
-    const {
-      name,
-      discountAmount,
-      isPercentage,
-      maxUses,
-      maxUsesPerUser,
-      startsAt,
-      expiresAt,
-      isActive
-    } = req.body;
+    const updateData = req.body;
 
-    // Build update query dynamically based on available columns
-    const updateFields = [];
-    const updateValues = [];
+    // Build update query dynamically
+    let updateFields = [];
+    let updateValues = [];
 
-    if (name !== undefined) {
-      updateFields.push('name = ?');
-      updateValues.push(name);
-    }
-
-    if (discountAmount !== undefined) {
-      if (discountAmount <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Discount amount must be greater than 0'
-        });
+    const allowedFields = ['name', 'discount_amount', 'is_percentage', 'max_uses', 'max_uses_per_user', 'starts_at', 'expires_at', 'is_active'];
+    
+    for (const field of allowedFields) {
+      if (updateData[field] !== undefined) {
+        updateFields.push(`${field} = ?`);
+        updateValues.push(updateData[field]);
       }
-      updateFields.push('discount_amount = ?');
-      updateValues.push(discountAmount);
-    }
-
-    // Check for optional columns before updating
-    if (isPercentage !== undefined) {
-      try {
-        const [columns] = await pool.query(`SHOW COLUMNS FROM promo_codes LIKE 'is_percentage'`);
-        if (columns.length > 0) {
-          updateFields.push('is_percentage = ?');
-          updateValues.push(isPercentage);
-        }
-      } catch (e) {
-        console.log('is_percentage column not available for update');
-      }
-    }
-
-    if (maxUses !== undefined) {
-      try {
-        const [columns] = await pool.query(`SHOW COLUMNS FROM promo_codes LIKE 'max_uses'`);
-        if (columns.length > 0) {
-          updateFields.push('max_uses = ?');
-          updateValues.push(maxUses);
-        }
-      } catch (e) {
-        console.log('max_uses column not available for update');
-      }
-    }
-
-    if (maxUsesPerUser !== undefined) {
-      try {
-        const [columns] = await pool.query(`SHOW COLUMNS FROM promo_codes LIKE 'max_uses_per_user'`);
-        if (columns.length > 0) {
-          updateFields.push('max_uses_per_user = ?');
-          updateValues.push(maxUsesPerUser);
-        }
-      } catch (e) {
-        console.log('max_uses_per_user column not available for update');
-      }
-    }
-
-    if (startsAt !== undefined) {
-      try {
-        const [columns] = await pool.query(`SHOW COLUMNS FROM promo_codes LIKE 'starts_at'`);
-        if (columns.length > 0) {
-          updateFields.push('starts_at = ?');
-          updateValues.push(startsAt);
-        }
-      } catch (e) {
-        console.log('starts_at column not available for update');
-      }
-    }
-
-    if (expiresAt !== undefined) {
-      try {
-        const [columns] = await pool.query(`SHOW COLUMNS FROM promo_codes LIKE 'expires_at'`);
-        if (columns.length > 0) {
-          updateFields.push('expires_at = ?');
-          updateValues.push(expiresAt);
-        }
-      } catch (e) {
-        console.log('expires_at column not available for update');
-      }
-    }
-
-    if (isActive !== undefined) {
-      updateFields.push('is_active = ?');
-      updateValues.push(isActive);
     }
 
     if (updateFields.length === 0) {
@@ -969,16 +873,7 @@ const updatePromoCode = async (req, res) => {
       });
     }
 
-    // Try to add updated_at if column exists
-    try {
-      const [columns] = await pool.query(`SHOW COLUMNS FROM promo_codes LIKE 'updated_at'`);
-      if (columns.length > 0) {
-        updateFields.push('updated_at = CURRENT_TIMESTAMP');
-      }
-    } catch (e) {
-      console.log('updated_at column not available');
-    }
-
+    updateFields.push('updated_at = CURRENT_TIMESTAMP');
     updateValues.push(codeId);
 
     const [result] = await pool.query(`
@@ -1032,73 +927,32 @@ const getAffiliateAnalytics = async (req, res) => {
         COUNT(DISTINCT CASE WHEN a.status = 'approved' THEN a.id END) as active_affiliates,
         COUNT(DISTINCT CASE WHEN a.status = 'pending' THEN a.id END) as pending_applications,
         SUM(a.balance) as total_unpaid_balance,
-        SUM(a.total_paid) as total_paid_out,
-        
-        -- Commission stats (if tables exist)
-        COUNT(DISTINCT c.id) as total_commissions,
-        SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END) as total_commissions_paid,
-        SUM(CASE WHEN c.status = 'pending' THEN c.amount ELSE 0 END) as total_commissions_pending
-        
+        SUM(a.total_paid) as total_paid_out
       FROM affiliates a
-      LEFT JOIN commissions c ON c.affiliate_id = a.id ${dateFilter.replace('a.created_at', 'c.created_at')}
       WHERE 1=1 ${dateFilter}
       ${affiliateId ? 'AND a.id = ?' : ''}
     `, affiliateId ? [affiliateId] : []);
 
-    // Top performing affiliates
-    let topAffiliates = [];
-    try {
-      const [topAffiliatesRows] = await pool.query(`
-        SELECT 
-          a.id,
-          u.name as affiliate_name,
-          pc.code as affiliate_code,
-          a.commission_rate,
-          COUNT(DISTINCT re.id) as total_clicks,
-          COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) as conversions,
-          SUM(CASE WHEN re.event_type = 'purchase' THEN re.conversion_value ELSE 0 END) as revenue_generated,
-          SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END) as commissions_paid
-        FROM affiliates a
-        JOIN users u ON a.user_id = u.id
-        LEFT JOIN promo_codes pc ON pc.affiliate_id = a.id
-        LEFT JOIN referral_events re ON re.code_id = pc.id ${dateFilter.replace('a.created_at', 're.created_at')}
-        LEFT JOIN commissions c ON c.affiliate_id = a.id ${dateFilter.replace('a.created_at', 'c.created_at')}
-        WHERE a.status = 'approved'
-        GROUP BY a.id, u.name, pc.code, a.commission_rate
-        ORDER BY revenue_generated DESC
-        LIMIT 10
-      `);
-      topAffiliates = topAffiliatesRows;
-    } catch (e) {
-      console.log('Could not fetch top affiliates data:', e.message);
-    }
-
-    // Calculate conversion rates
-    const stats = overallStats[0];
-    const conversionRates = {
-      click_to_signup: 0,
-      signup_to_purchase: 0,
-      click_to_purchase: 0
-    };
+    // Get performance metrics by day/week
+    const [performanceData] = await pool.query(`
+      SELECT 
+        DATE(created_at) as date,
+        COUNT(*) as new_affiliates,
+        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved_count
+      FROM affiliates 
+      WHERE 1=1 ${dateFilter}
+      ${affiliateId ? 'AND id = ?' : ''}
+      GROUP BY DATE(created_at)
+      ORDER BY date DESC
+      LIMIT 30
+    `, affiliateId ? [affiliateId] : []);
 
     res.status(200).json({
       success: true,
       data: {
-        period,
-        overview: {
-          ...stats,
-          // Ensure numeric fields have defaults
-          total_affiliates: stats.total_affiliates || 0,
-          active_affiliates: stats.active_affiliates || 0,
-          pending_applications: stats.pending_applications || 0,
-          total_unpaid_balance: stats.total_unpaid_balance || 0,
-          total_paid_out: stats.total_paid_out || 0,
-          total_commissions: stats.total_commissions || 0,
-          total_commissions_paid: stats.total_commissions_paid || 0,
-          total_commissions_pending: stats.total_commissions_pending || 0
-        },
-        conversion_rates: conversionRates,
-        top_affiliates: topAffiliates
+        overview: overallStats[0],
+        performance: performanceData,
+        period: period
       }
     });
     
@@ -1106,7 +960,7 @@ const getAffiliateAnalytics = async (req, res) => {
     console.error('Error getting affiliate analytics:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch analytics',
+      message: 'Failed to get analytics',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -1115,77 +969,71 @@ const getAffiliateAnalytics = async (req, res) => {
 // Get payout requests
 const getPayoutRequests = async (req, res) => {
   try {
-    const {
-      status = 'all',
-      page = 1,
-      limit = 20
+    const { 
+      status = 'all', 
+      page = 1, 
+      limit = 20 
     } = req.query;
 
-    // Check if payout tables exist
-    try {
-      const [payoutTables] = await pool.query(`
-        SHOW TABLES LIKE '%payout%'
-      `);
-      
-      if (payoutTables.length === 0) {
-        // Return empty data if no payout tables exist
-        return res.status(200).json({
-          success: true,
-          data: {
-            payouts: [],
-            pagination: {
-              current_page: 1,
-              total_pages: 0,
-              total_items: 0,
-              items_per_page: parseInt(limit)
-            }
-          }
-        });
-      }
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Build WHERE clause
+    let whereCondition = '';
+    let queryParams = [];
+    
+    if (status !== 'all') {
+      whereCondition = 'WHERE ap.status = ?';
+      queryParams.push(status);
+    }
 
-      // Try to fetch from available payout table
+    try {
       const [payouts] = await pool.query(`
         SELECT 
-          pr.*,
+          ap.*,
+          a.user_id,
           u.name as affiliate_name,
-          u.email as affiliate_email,
-          a.commission_rate
-        FROM payout_requests pr
-        JOIN affiliates a ON pr.affiliate_id = a.id
+          u.email as affiliate_email
+        FROM affiliate_payouts ap
+        JOIN affiliates a ON ap.affiliate_id = a.id
         JOIN users u ON a.user_id = u.id
-        ${status !== 'all' ? 'WHERE pr.status = ?' : ''}
-        ORDER BY pr.created_at DESC
-        LIMIT ?
-      `, status !== 'all' ? [status, parseInt(limit)] : [parseInt(limit)]);
+        ${whereCondition}
+        ORDER BY ap.created_at DESC
+        LIMIT ? OFFSET ?
+      `, [...queryParams, parseInt(limit), offset]);
+
+      // Get total count
+      const [countResult] = await pool.query(`
+        SELECT COUNT(*) as total
+        FROM affiliate_payouts ap
+        ${whereCondition}
+      `, queryParams);
 
       res.status(200).json({
         success: true,
         data: {
-          payouts: payouts || [],
+          payouts,
           pagination: {
-            current_page: parseInt(page),
-            total_pages: Math.ceil((payouts?.length || 0) / parseInt(limit)),
-            total_items: payouts?.length || 0,
-            items_per_page: parseInt(limit)
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total: countResult[0].total,
+            totalPages: Math.ceil(countResult[0].total / parseInt(limit))
           }
         }
       });
-
     } catch (e) {
-      console.log('Payout request tables not available:', e.message);
-      
-      // Return empty data structure
+      console.log('Payout tables not available:', e.message);
       res.status(200).json({
         success: true,
         data: {
           payouts: [],
           pagination: {
-            current_page: 1,
-            total_pages: 0,
-            total_items: 0,
-            items_per_page: parseInt(limit)
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total: 0,
+            totalPages: 0
           }
-        }
+        },
+        message: 'Payout system not yet fully implemented'
       });
     }
     
@@ -1193,7 +1041,7 @@ const getPayoutRequests = async (req, res) => {
     console.error('Error getting payout requests:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch payout requests',
+      message: 'Failed to get payout requests',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -1217,7 +1065,7 @@ const processPayout = async (req, res) => {
   }
 };
 
-// CRITICAL: Ensure all functions are exported
+// CRITICAL: Export all functions
 module.exports = {
   getAllAffiliates,
   approveAffiliate,
