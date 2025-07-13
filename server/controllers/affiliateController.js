@@ -85,14 +85,14 @@ const submitApplication = async (req, res) => {
     
     const userId = req.user.id;
     const {
-      contentPlatforms,
-      audienceInfo,
-      promotionStrategy,
-      portfolioLinks
+      content_platforms,
+      audience_info,
+      promotion_strategy,
+      portfolio_links
     } = req.body;
 
     // Validation
-    if (!contentPlatforms || !audienceInfo || !promotionStrategy) {
+    if (!content_platforms || !audience_info || !promotion_strategy) {
       return res.status(400).json({
         success: false,
         message: 'Content platforms, audience info, and promotion strategy are required'
@@ -122,53 +122,63 @@ const submitApplication = async (req, res) => {
         });
       }
       
+      if (affiliate.status === 'suspended') {
+        return res.status(400).json({
+          success: false,
+          message: 'Your affiliate account is suspended. Please contact support.'
+        });
+      }
+      
       if (affiliate.status === 'denied') {
-        // Check if cooldown period has passed
         if (affiliate.next_allowed_application_date && 
             new Date() < new Date(affiliate.next_allowed_application_date)) {
           return res.status(400).json({
             success: false,
-            message: 'You must wait before reapplying. Next application allowed on: ' + 
-                    new Date(affiliate.next_allowed_application_date).toLocaleDateString()
+            message: `You can reapply after ${new Date(affiliate.next_allowed_application_date).toLocaleDateString()}`
           });
         }
-        
-        // Update existing denied application
-        await connection.query(`
-          UPDATE affiliates SET 
-            status = 'pending',
-            application_date = CURRENT_TIMESTAMP,
-            denial_date = NULL,
-            denial_reason = NULL,
-            next_allowed_application_date = NULL,
-            content_platforms = ?,
-            audience_info = ?,
-            promotion_strategy = ?,
-            portfolio_links = ?,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = ?
-        `, [
-          JSON.stringify(contentPlatforms),
-          audienceInfo,
-          promotionStrategy,
-          portfolioLinks || null,
-          userId
-        ]);
       }
+    }
+
+    // Create or update affiliate application
+    if (existingAffiliate.length > 0) {
+      // Update existing application (reapplying)
+      await connection.query(`
+        UPDATE affiliates SET 
+          status = 'pending',
+          content_platforms = ?,
+          audience_info = ?,
+          promotion_strategy = ?,
+          portfolio_links = ?,
+          application_date = CURRENT_TIMESTAMP,
+          denial_date = NULL,
+          denial_reason = NULL,
+          next_allowed_application_date = NULL,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ?
+      `, [
+        JSON.stringify(content_platforms),
+        audience_info,
+        promotion_strategy,
+        portfolio_links || null,
+        userId
+      ]);
     } else {
-      // Create new affiliate application
+      // Create new application
       await connection.query(`
         INSERT INTO affiliates (
-          user_id, status, content_platforms, audience_info, 
-          promotion_strategy, portfolio_links, commission_rate
-        ) VALUES (?, 'pending', ?, ?, ?, ?, ?)
+          user_id, status, application_date,
+          content_platforms, audience_info, promotion_strategy, portfolio_links,
+          commission_rate, payout_threshold
+        ) VALUES (?, 'pending', CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
       `, [
         userId,
-        JSON.stringify(contentPlatforms),
-        audienceInfo,
-        promotionStrategy,
-        portfolioLinks || null,
-        DEFAULT_COMMISSION_RATE
+        JSON.stringify(content_platforms),
+        audience_info,
+        promotion_strategy,
+        portfolio_links || null,
+        DEFAULT_COMMISSION_RATE,
+        MIN_PAYOUT_THRESHOLD
       ]);
     }
 
@@ -176,7 +186,7 @@ const submitApplication = async (req, res) => {
     
     res.status(200).json({
       success: true,
-      message: 'Your affiliate application has been submitted successfully! We will review it within 2-3 business days.'
+      message: 'Application submitted successfully! We will review it within 2-3 business days.'
     });
     
   } catch (error) {
@@ -226,8 +236,8 @@ const getAffiliateDashboard = async (req, res) => {
         SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END) as total_earnings,
         SUM(CASE WHEN c.status = 'pending' THEN c.amount ELSE 0 END) as pending_earnings,
         COUNT(DISTINCT re.id) as total_clicks,
-        COUNT(DISTINCT CASE WHEN re.event_type = 'signup' THEN re.id END) as total_signups,
-        COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) as total_conversions
+        COUNT(DISTINCT CASE WHEN re.event_type = 'signup' THEN re.user_id END) as total_signups,
+        COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.order_id END) as total_conversions
       FROM affiliates a
       LEFT JOIN promo_codes pc ON pc.affiliate_id = a.id AND pc.type = 'affiliate'
       LEFT JOIN commissions c ON c.affiliate_id = a.id
@@ -267,9 +277,10 @@ const getAffiliateDashboard = async (req, res) => {
     const [recentEvents] = await pool.query(`
       SELECT 
         re.*,
-        pc.code
+        u.name as referred_user_name
       FROM referral_events re
       JOIN promo_codes pc ON re.code_id = pc.id
+      LEFT JOIN users u ON re.user_id = u.id
       WHERE pc.affiliate_id = ?
       ORDER BY re.created_at DESC
       LIMIT 20
@@ -280,14 +291,28 @@ const getAffiliateDashboard = async (req, res) => {
       ? Math.round((stats.total_conversions / stats.total_clicks) * 10000) / 100 
       : 0;
 
+    // Check if can request payout
+    const canRequestPayout = affiliate.balance >= affiliate.payout_threshold;
+
     res.status(200).json({
       success: true,
       data: {
-        affiliate,
+        affiliate: {
+          id: affiliate.id,
+          user_id: affiliate.user_id,
+          status: affiliate.status,
+          affiliate_code: affiliate.affiliate_code,
+          commission_rate: affiliate.commission_rate,
+          balance: affiliate.balance,
+          total_paid: affiliate.total_paid,
+          payout_threshold: affiliate.payout_threshold,
+          last_payout_date: affiliate.last_payout_date,
+          created_at: affiliate.created_at
+        },
         stats: {
           ...stats,
           conversion_rate: conversionRate,
-          can_request_payout: parseFloat(affiliate.balance) >= MIN_PAYOUT_THRESHOLD
+          can_request_payout: canRequestPayout
         },
         recent_commissions: recentCommissions,
         recent_events: recentEvents
@@ -298,7 +323,7 @@ const getAffiliateDashboard = async (req, res) => {
     console.error('Error getting affiliate dashboard:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to load dashboard data',
+      message: 'Failed to fetch dashboard data',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -314,10 +339,12 @@ const regenerateAffiliateCode = async (req, res) => {
     const userId = req.user.id;
     
     // Get affiliate info
-    const [affiliateRows] = await connection.query(
-      'SELECT * FROM affiliates WHERE user_id = ? AND status = "approved"',
-      [userId]
-    );
+    const [affiliateRows] = await connection.query(`
+      SELECT a.*, pc.last_regenerated 
+      FROM affiliates a
+      LEFT JOIN promo_codes pc ON pc.affiliate_id = a.id AND pc.type = 'affiliate'
+      WHERE a.user_id = ? AND a.status = 'approved'
+    `, [userId]);
 
     if (affiliateRows.length === 0) {
       return res.status(404).json({
@@ -327,29 +354,17 @@ const regenerateAffiliateCode = async (req, res) => {
     }
 
     const affiliate = affiliateRows[0];
-
-    // Check if user has regenerated code recently (24 hour cooldown)
-    const [existingCode] = await connection.query(
-      'SELECT * FROM promo_codes WHERE affiliate_id = ? AND type = "affiliate"',
-      [affiliate.id]
-    );
-
-    if (existingCode.length > 0) {
-      const lastUpdated = new Date(existingCode[0].created_at);
-      const cooldownEnd = new Date(lastUpdated.getTime() + (CODE_REGENERATION_COOLDOWN_HOURS * 60 * 60 * 1000));
-      
-      if (new Date() < cooldownEnd) {
+    
+    // Check regeneration cooldown
+    if (affiliate.last_regenerated) {
+      const hoursSinceLastRegen = (Date.now() - new Date(affiliate.last_regenerated).getTime()) / (1000 * 60 * 60);
+      if (hoursSinceLastRegen < CODE_REGENERATION_COOLDOWN_HOURS) {
+        const hoursRemaining = Math.ceil(CODE_REGENERATION_COOLDOWN_HOURS - hoursSinceLastRegen);
         return res.status(400).json({
           success: false,
-          message: `Code regeneration is limited to once per 24 hours. Try again after ${cooldownEnd.toLocaleString()}`
+          message: `You can regenerate your code in ${hoursRemaining} hours`
         });
       }
-
-      // Deactivate old code
-      await connection.query(
-        'UPDATE promo_codes SET is_active = FALSE WHERE affiliate_id = ? AND type = "affiliate"',
-        [affiliate.id]
-      );
     }
 
     // Generate new unique code
@@ -359,37 +374,29 @@ const regenerateAffiliateCode = async (req, res) => {
     
     while (!isUnique && attempts < 10) {
       newCode = generateAffiliateCode();
-      const [existingCodeCheck] = await connection.query(
+      const [existingCode] = await connection.query(
         'SELECT id FROM promo_codes WHERE code = ?',
         [newCode]
       );
       
-      if (existingCodeCheck.length === 0) {
+      if (existingCode.length === 0) {
         isUnique = true;
       }
       attempts++;
     }
 
     if (!isUnique) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to generate unique code. Please try again.'
-      });
+      throw new Error('Failed to generate unique code');
     }
 
-    // Create new affiliate code
+    // Update the promo code
     await connection.query(`
-      INSERT INTO promo_codes (
-        code, name, type, affiliate_id, created_by, 
-        discount_amount, is_percentage, is_active
-      ) VALUES (?, ?, 'affiliate', ?, ?, ?, TRUE, TRUE)
-    `, [
-      newCode,
-      `${req.user.name}'s Affiliate Code`,
-      affiliate.id,
-      userId,
-      affiliate.commission_rate
-    ]);
+      UPDATE promo_codes SET 
+        code = ?,
+        last_regenerated = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE affiliate_id = ? AND type = 'affiliate'
+    `, [newCode, affiliate.id]);
 
     // Update user's affiliate_code
     await connection.query(
@@ -402,7 +409,9 @@ const regenerateAffiliateCode = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Affiliate code regenerated successfully',
-      data: { code: newCode }
+      data: {
+        new_code: newCode
+      }
     });
     
   } catch (error) {
@@ -410,7 +419,7 @@ const regenerateAffiliateCode = async (req, res) => {
     console.error('Error regenerating affiliate code:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to regenerate affiliate code',
+      message: 'Failed to regenerate code',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   } finally {
@@ -426,6 +435,7 @@ const requestPayout = async (req, res) => {
     await connection.beginTransaction();
     
     const userId = req.user.id;
+    const { amount } = req.body;
     
     // Get affiliate info
     const [affiliateRows] = await connection.query(
@@ -441,81 +451,91 @@ const requestPayout = async (req, res) => {
     }
 
     const affiliate = affiliateRows[0];
-
-    // Check minimum payout threshold
-    if (parseFloat(affiliate.balance) < MIN_PAYOUT_THRESHOLD) {
+    
+    // Validate payout amount
+    const payoutAmount = amount || affiliate.balance;
+    
+    if (payoutAmount < affiliate.payout_threshold) {
       return res.status(400).json({
         success: false,
-        message: `Minimum payout threshold is $${MIN_PAYOUT_THRESHOLD}. Your current balance is $${affiliate.balance}`
+        message: `Minimum payout amount is $${affiliate.payout_threshold}`
       });
     }
 
-    // Check if there's already a pending payout
-    const [pendingPayouts] = await connection.query(
-      'SELECT * FROM affiliate_payouts WHERE affiliate_id = ? AND status IN ("pending", "processing")',
-      [affiliate.id]
-    );
-
-    if (pendingPayouts.length > 0) {
+    if (payoutAmount > affiliate.balance) {
       return res.status(400).json({
         success: false,
-        message: 'You already have a pending payout request'
+        message: `Insufficient balance. Your current balance is $${affiliate.balance}`
       });
     }
 
-    // Get eligible commissions (approved and past holding period)
-    const [eligibleCommissions] = await connection.query(`
-      SELECT * FROM commissions 
+    // Get eligible commissions
+    const eligibleDate = new Date();
+    eligibleDate.setDate(eligibleDate.getDate() - COMMISSION_HOLDING_DAYS);
+    
+    const [commissions] = await connection.query(`
+      SELECT id, amount 
+      FROM commissions 
       WHERE affiliate_id = ? 
-        AND status = 'approved' 
-        AND eligible_for_payout_date <= CURRENT_TIMESTAMP
+        AND status = 'pending' 
+        AND created_at <= ?
       ORDER BY created_at ASC
-    `, [affiliate.id]);
+    `, [affiliate.id, eligibleDate]);
 
-    if (eligibleCommissions.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No eligible commissions for payout'
-      });
+    let totalAmount = 0;
+    const commissionIds = [];
+    
+    for (const commission of commissions) {
+      if (totalAmount + commission.amount <= payoutAmount) {
+        totalAmount += commission.amount;
+        commissionIds.push(commission.id);
+      } else {
+        break;
+      }
     }
 
-    const payoutAmount = eligibleCommissions.reduce((sum, commission) => {
-      return sum + parseFloat(commission.amount);
-    }, 0);
-
-    const commissionIds = eligibleCommissions.map(c => c.id);
+    if (totalAmount < affiliate.payout_threshold) {
+      return res.status(400).json({
+        success: false,
+        message: 'Not enough eligible commissions for payout'
+      });
+    }
 
     // Create payout request
-    await connection.query(`
+    const [payoutResult] = await connection.query(`
       INSERT INTO affiliate_payouts (
-        affiliate_id, amount, commission_ids, commission_count, status
-      ) VALUES (?, ?, ?, ?, 'pending')
+        affiliate_id, amount, commission_count, commission_ids, 
+        status, created_at
+      ) VALUES (?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
     `, [
       affiliate.id,
-      payoutAmount,
-      JSON.stringify(commissionIds),
-      commissionIds.length
+      totalAmount,
+      commissionIds.length,
+      JSON.stringify(commissionIds)
     ]);
 
-    // Update commission statuses to 'paid' (they'll be marked as paid when payout completes)
-    await connection.query(
-      'UPDATE commissions SET status = "paid", paid_at = CURRENT_TIMESTAMP WHERE id IN (?)',
-      [commissionIds]
-    );
+    // Update commission statuses
+    if (commissionIds.length > 0) {
+      await connection.query(
+        'UPDATE commissions SET payout_id = ? WHERE id IN (?)',
+        [payoutResult.insertId, commissionIds]
+      );
+    }
 
     // Update affiliate balance
     await connection.query(
-      'UPDATE affiliates SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [payoutAmount, affiliate.id]
+      'UPDATE affiliates SET balance = balance - ? WHERE id = ?',
+      [totalAmount, affiliate.id]
     );
 
     await connection.commit();
     
     res.status(200).json({
       success: true,
-      message: `Payout request of $${payoutAmount.toFixed(2)} submitted successfully`,
+      message: `Payout request of $${totalAmount.toFixed(2)} submitted successfully`,
       data: {
-        amount: payoutAmount,
+        payout_id: payoutResult.insertId,
+        amount: totalAmount,
         commission_count: commissionIds.length
       }
     });
@@ -551,7 +571,8 @@ const validatePromoCode = async (req, res) => {
       SELECT 
         pc.*,
         a.commission_rate,
-        a.user_id as affiliate_user_id
+        a.user_id as affiliate_user_id,
+        a.id as affiliate_id
       FROM promo_codes pc
       LEFT JOIN affiliates a ON pc.affiliate_id = a.id
       WHERE pc.code = ? AND pc.is_active = TRUE
@@ -596,7 +617,7 @@ const validatePromoCode = async (req, res) => {
         'SELECT COUNT(*) as usage_count FROM promo_code_usage WHERE code_id = ? AND user_id = ?',
         [promoCode.id, userId]
       );
-      
+
       if (userUsage[0].usage_count >= promoCode.max_uses_per_user) {
         return res.status(400).json({
           success: false,
@@ -605,30 +626,34 @@ const validatePromoCode = async (req, res) => {
       }
     }
 
+    // Prevent self-referral for affiliate codes
+    if (promoCode.type === 'affiliate' && userId && promoCode.affiliate_user_id === userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot use your own affiliate code'
+      });
+    }
+
     // Calculate discount
-    let discountAmount;
+    let discountAmount = 0;
     if (promoCode.is_percentage) {
       discountAmount = Math.round((orderTotal * promoCode.discount_amount / 100) * 100) / 100;
     } else {
       discountAmount = Math.min(promoCode.discount_amount, orderTotal);
     }
 
-    // Calculate final total
-    const finalTotal = Math.max(0, orderTotal - discountAmount);
-
     res.status(200).json({
       success: true,
-      message: 'Promo code applied successfully',
       data: {
         code: promoCode.code,
         name: promoCode.name,
         type: promoCode.type,
         discount_amount: discountAmount,
-        original_total: orderTotal,
-        final_total: finalTotal,
         is_percentage: promoCode.is_percentage,
-        code_id: promoCode.id,
-        affiliate_id: promoCode.affiliate_id
+        percentage: promoCode.is_percentage ? promoCode.discount_amount : null,
+        final_price: Math.max(0, orderTotal - discountAmount),
+        affiliate_id: promoCode.affiliate_id,
+        code_id: promoCode.id
       }
     });
     
@@ -642,14 +667,13 @@ const validatePromoCode = async (req, res) => {
   }
 };
 
-// Track referral event (clicks, signups, purchases)
+// Track referral events (clicks, signups, purchases)
 const trackReferralEvent = async (req, res) => {
   try {
     const { code, eventType, orderId, sessionId } = req.body;
     const userId = req.user?.id;
-    const ipAddress = req.ip || req.connection.remoteAddress;
-    const userAgent = req.get('User-Agent');
-    const referrer = req.get('Referrer');
+    const ipAddress = req.ip;
+    const userAgent = req.headers['user-agent'];
 
     if (!code || !eventType) {
       return res.status(400).json({
@@ -658,23 +682,31 @@ const trackReferralEvent = async (req, res) => {
       });
     }
 
-    // Get code ID
+    const validEventTypes = ['click', 'signup', 'purchase'];
+    if (!validEventTypes.includes(eventType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid event type'
+      });
+    }
+
+    // Get promo code info
     const [codeRows] = await pool.query(
-      'SELECT id FROM promo_codes WHERE code = ? AND is_active = TRUE',
+      'SELECT id, affiliate_id FROM promo_codes WHERE code = ? AND type = "affiliate"',
       [code.toUpperCase()]
     );
 
     if (codeRows.length === 0) {
-      return res.status(400).json({
+      return res.status(404).json({
         success: false,
-        message: 'Invalid promo code'
+        message: 'Affiliate code not found'
       });
     }
 
-    const codeId = codeRows[0].id;
+    const promoCode = codeRows[0];
 
-    // For purchase events, get order total
-    let conversionValue = null;
+    // Get conversion value if it's a purchase event
+    let conversionValue = 0;
     if (eventType === 'purchase' && orderId) {
       const [orderRows] = await pool.query(
         'SELECT total_price FROM orders WHERE id = ?',
@@ -686,21 +718,20 @@ const trackReferralEvent = async (req, res) => {
       }
     }
 
-    // Insert referral event
+    // Track the event
     await pool.query(`
       INSERT INTO referral_events (
-        code_id, user_id, ip_address, user_agent, referrer_url,
-        event_type, order_id, session_id, conversion_value
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        code_id, event_type, user_id, order_id, 
+        session_id, ip_address, user_agent, conversion_value
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      codeId,
-      userId || null,
-      ipAddress,
-      userAgent || null,
-      referrer || null,
+      promoCode.id,
       eventType,
+      userId || null,
       orderId || null,
       sessionId || null,
+      ipAddress,
+      userAgent,
       conversionValue
     ]);
 
@@ -711,86 +742,54 @@ const trackReferralEvent = async (req, res) => {
     
   } catch (error) {
     console.error('Error tracking referral event:', error);
-    res.status(500).json({
+    // Don't throw error for tracking - shouldn't break user experience
+    res.status(200).json({
       success: false,
-      message: 'Failed to track event',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: 'Failed to track event'
     });
   }
 };
 
-// Process commission after order completion (internal function)
-const processCommission = async (orderId, codeId) => {
+// Helper function to process commission after order creation
+const processCommission = async (orderId, promoCodeData) => {
   const connection = await pool.getConnection();
   
   try {
     await connection.beginTransaction();
     
-    // Get order details
-    const [orderRows] = await connection.query(
-      'SELECT * FROM orders WHERE id = ?',
-      [orderId]
-    );
-
-    if (orderRows.length === 0) {
-      throw new Error('Order not found');
-    }
-
-    const order = orderRows[0];
-
-    // Get promo code and affiliate details
-    const [codeRows] = await connection.query(`
-      SELECT 
-        pc.*,
-        a.id as affiliate_id,
-        a.commission_rate,
-        a.user_id as affiliate_user_id
-      FROM promo_codes pc
-      JOIN affiliates a ON pc.affiliate_id = a.id
-      WHERE pc.id = ? AND pc.type = 'affiliate' AND a.status = 'approved'
-    `, [codeId]);
-
-    if (codeRows.length === 0) {
-      throw new Error('Affiliate code not found or affiliate not approved');
-    }
-
-    const promoCode = codeRows[0];
-    const commissionAmount = calculateCommission(order.total_price, promoCode.commission_rate);
-
-    // Check if commission already exists
-    const [existingCommission] = await connection.query(
-      'SELECT id FROM commissions WHERE affiliate_id = ? AND order_id = ?',
-      [promoCode.affiliate_id, orderId]
-    );
-
-    if (existingCommission.length > 0) {
-      console.log('Commission already exists for this order');
-      await connection.commit();
+    if (!promoCodeData || promoCodeData.type !== 'affiliate') {
       return;
     }
 
+    const { order_id, order_total, promo_code, commission_rate, affiliate_id } = promoCodeData;
+    
+    // Calculate commission
+    const commissionAmount = calculateCommission(order_total, commission_rate);
+    
     // Create commission record
     await connection.query(`
       INSERT INTO commissions (
-        affiliate_id, order_id, code_id, amount, rate, order_total, status
-      ) VALUES (?, ?, ?, ?, ?, ?, 'pending')
+        affiliate_id, order_id, code_id, 
+        order_amount, commission_rate, amount, 
+        status, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
     `, [
-      promoCode.affiliate_id,
-      orderId,
-      codeId,
-      commissionAmount,
-      promoCode.commission_rate,
-      order.total_price
+      affiliate_id,
+      order_id,
+      promo_code.id,
+      order_total,
+      commission_rate,
+      commissionAmount
     ]);
 
     // Update affiliate balance
     await connection.query(
-      'UPDATE affiliates SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [commissionAmount, promoCode.affiliate_id]
+      'UPDATE affiliates SET balance = balance + ? WHERE id = ?',
+      [commissionAmount, affiliate_id]
     );
 
     await connection.commit();
-    console.log(`Commission of $${commissionAmount} processed for affiliate ${promoCode.affiliate_id}`);
+    console.log(`Commission of $${commissionAmount} processed for affiliate ${affiliate_id}`);
     
   } catch (error) {
     await connection.rollback();

@@ -1,27 +1,192 @@
 import { useState, useEffect } from 'react';
 import CheckoutForm from './CheckoutForm';
+import { affiliateService } from '../../services/affiliateService';
 
-// Order Summary Item Component
-const SummaryItem = ({ label, value }) => (
-  <div className="flex justify-between mb-2">
-    <span className="text-light-muted">{label}</span>
-    <span>{value}</span>
-  </div>
-);
+const StepFour = ({ formData, setFormData, prevStep, onSubmit, loading, error, calculateTotalPrice }) => {
+  const [promoCode, setPromoCode] = useState('');
+  const [promoDiscount, setPromoDiscount] = useState(0);
+  const [promoError, setPromoError] = useState('');
+  const [isValidating, setIsValidating] = useState(false);
+  const [validatedPromoData, setValidatedPromoData] = useState(null);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [orderSubmitted, setOrderSubmitted] = useState(false);
+  const [orderId, setOrderId] = useState(null);
 
-// Order Summary Component
-const OrderSummary = ({ formData, discountCode, discountAmount }) => {
-  const getPackageDetails = () => {
-    switch (formData.package) {
-      case 'basic':
-        return { name: 'Essential Package', price: 39.99 };
-      case 'deluxe':
-        return { name: 'Signature Package', price: 74.99 };
-      case 'premium':
-        return { name: 'Masterpiece Package', price: 139.99 };
-      default:
-        return { name: 'Signature Package', price: 74.99 };
+  useEffect(() => {
+    // Check URL parameters for affiliate code
+    const urlParams = new URLSearchParams(window.location.search);
+    const refCode = urlParams.get('ref');
+    
+    if (refCode) {
+      // Store in localStorage for later use
+      localStorage.setItem('affiliate_ref', refCode);
+      
+      // Track click event
+      affiliateService.trackEvent(refCode, 'click', null, sessionStorage.getItem('session_id') || generateSessionId());
     }
+    
+    // Check for stored affiliate code
+    const storedRef = localStorage.getItem('affiliate_ref');
+    if (storedRef && !promoCode) {
+      setPromoCode(storedRef);
+      validatePromoCode(storedRef);
+    }
+  }, []);
+
+  // Helper function to generate session ID
+  const generateSessionId = () => {
+    const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    sessionStorage.setItem('session_id', sessionId);
+    return sessionId;
+  };
+
+  // Function to validate promo code
+  const validatePromoCode = async (code = promoCode) => {
+    if (!code) {
+      setPromoError('Please enter a promo code');
+      return;
+    }
+
+    setIsValidating(true);
+    setPromoError('');
+
+    try {
+      const orderTotal = calculateTotalPrice();
+      const response = await affiliateService.validatePromoCode(code, orderTotal);
+      
+      if (response.data) {
+        setPromoDiscount(response.data.discount_amount);
+        setValidatedPromoData(response.data);
+        setPromoError('');
+        
+        // Update form data with promo code info
+        setFormData({
+          ...formData,
+          used_promo_code: response.data.code,
+          promo_discount_amount: response.data.discount_amount,
+          referring_affiliate_id: response.data.affiliate_id
+        });
+      }
+    } catch (error) {
+      setPromoError(error.message || 'Invalid promo code');
+      setPromoDiscount(0);
+      setValidatedPromoData(null);
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
+  // Function to remove promo code
+  const removePromoCode = () => {
+    setPromoCode('');
+    setPromoDiscount(0);
+    setPromoError('');
+    setValidatedPromoData(null);
+    setFormData({
+      ...formData,
+      used_promo_code: null,
+      promo_discount_amount: 0,
+      referring_affiliate_id: null
+    });
+  };
+
+  const PromoCodeSection = () => (
+    <div className="mb-6 p-4 bg-white/5 rounded-lg border border-white/10">
+      <h3 className="text-lg font-semibold mb-3">Promo Code</h3>
+      
+      {!validatedPromoData ? (
+        <div className="space-y-3">
+          <div className="flex space-x-2">
+            <input
+              type="text"
+              value={promoCode}
+              onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+              placeholder="Enter promo code"
+              className="flex-1 px-4 py-2 bg-white/5 border border-white/20 rounded-lg focus:outline-none focus:border-accent"
+              disabled={isValidating}
+            />
+            <button
+              onClick={() => validatePromoCode()}
+              disabled={isValidating || !promoCode}
+              className="px-6 py-2 bg-accent text-dark rounded-lg hover:bg-accent-alt transition-colors disabled:opacity-50"
+            >
+              {isValidating ? (
+                <i className="fas fa-spinner fa-spin"></i>
+              ) : (
+                'Apply'
+              )}
+            </button>
+          </div>
+          
+          {promoError && (
+            <p className="text-sm text-romantic">
+              <i className="fas fa-exclamation-circle mr-1"></i>
+              {promoError}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+            <div>
+              <p className="font-medium text-green-400">
+                {validatedPromoData.name}
+              </p>
+              <p className="text-sm text-light-muted">
+                {validatedPromoData.is_percentage 
+                  ? `${validatedPromoData.percentage}% off`
+                  : `$${validatedPromoData.discount_amount} off`
+                }
+              </p>
+            </div>
+            <button
+              onClick={removePromoCode}
+              className="text-romantic hover:text-romantic-light transition-colors"
+            >
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // Order Summary Item Component
+  const SummaryItem = ({ label, value }) => (
+    <div className="flex justify-between mb-2">
+      <span className="text-light-muted">{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+
+  // Order Summary Component
+  const OrderSummary = () => {
+    const subtotal = calculateTotalPrice();
+    const finalTotal = Math.max(0, subtotal - promoDiscount);
+    
+    return (
+      <div className="space-y-2">
+        <div className="flex justify-between">
+          <span>Subtotal:</span>
+          <span>${subtotal.toFixed(2)}</span>
+        </div>
+        
+        {promoDiscount > 0 && (
+          <div className="flex justify-between text-green-400">
+            <span>Discount:</span>
+            <span>-${promoDiscount.toFixed(2)}</span>
+          </div>
+        )}
+        
+        <div className="border-t border-white/20 pt-2">
+          <div className="flex justify-between text-lg font-bold">
+            <span>Total:</span>
+            <span className="text-accent">${finalTotal.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const getAddonPrice = (addonType) => {
@@ -92,6 +257,17 @@ const OrderSummary = ({ formData, discountCode, discountAmount }) => {
     return (subtotal - discount).toFixed(2);
   };
 
+  const getPackageDetails = () => {
+    // This should be defined based on your package structure
+    const packages = {
+      basic: { name: 'Basic Package', price: 99 },
+      standard: { name: 'Standard Package', price: 149 },
+      deluxe: { name: 'Deluxe Package', price: 199 },
+      premium: { name: 'Premium Package', price: 299 }
+    };
+    return packages[formData.package] || packages.basic;
+  };
+
   const packageDetails = getPackageDetails();
   const subtotal = calculateSubtotal();
   const discount = calculateDiscount();
@@ -120,123 +296,9 @@ const OrderSummary = ({ formData, discountCode, discountAmount }) => {
   
   const includedAddons = getIncludedAddons();
 
-  return (
-    <div className="bg-black/20 rounded-lg p-6 mb-6">
-      <div className="flex justify-between items-center pb-2 mb-4 border-b border-white/10">
-        <h3 className="text-xl font-semibold">Order Summary</h3>
-      </div>
-
-      <div className="mb-4">
-        <SummaryItem
-          label={packageDetails.name}
-          value={`£${packageDetails.price.toFixed(2)}`}
-        />
-        
-        {/* Show included addons */}
-        {includedAddons.length > 0 && (
-          <div className="mt-2 mb-2 pl-4 border-l-2 border-accent/20">
-            <p className="text-xs text-light-muted mb-1">Included in your package:</p>
-            {includedAddons.map((addon, index) => (
-              <SummaryItem
-                key={`included-${index}`}
-                label={addon.name}
-                value="Included"
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Show selected addons that aren't already included */}
-        {formData.addons && formData.addons.map((addon) => {
-          // Skip addons already included in the package
-          if (isAddonIncludedInPackage(addon)) {
-            return null;
-          }
-          
-          const addonDetails = getAddonPrice(addon);
-          if (addonDetails) {
-            return (
-              <SummaryItem
-                key={addon}
-                label={addonDetails.name}
-                value={`£${addonDetails.price.toFixed(2)}`}
-              />
-            );
-          }
-          return null;
-        })}
-      </div>
-
-      <div className="border-t border-dashed border-white/10 my-4 pt-4">
-        <SummaryItem
-          label="Subtotal"
-          value={`£${subtotal.toFixed(2)}`}
-        />
-
-        {discountCode && discountAmount > 0 && (
-          <SummaryItem
-            label={`Discount (${discountAmount}% off)`}
-            value={`-£${discount}`}
-          />
-        )}
-      </div>
-
-      <div className="flex justify-between font-bold text-lg border-t border-white/10 pt-4">
-        <span>Total:</span>
-        <span className="text-accent">£{total}</span>
-      </div>
-    </div>
-  );
-};
-
-const StepFour = ({ formData, setFormData, prevStep, onSubmit, loading, error, calculateTotalPrice }) => {
-  const [discountCode, setDiscountCode] = useState('');
-  const [enteredCode, setEnteredCode] = useState('');
-  const [discountAmount, setDiscountAmount] = useState(0);
-  const [codeError, setCodeError] = useState('');
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
-  
-  // NEW STATE: Control whether to show the payment form
-  const [showPaymentForm, setShowPaymentForm] = useState(false);
-  // NEW STATE: Track if the order has been submitted
-  const [orderSubmitted, setOrderSubmitted] = useState(false);
-  // NEW STATE: Store the order ID after creation
-  const [orderId, setOrderId] = useState(null);
-
-  useEffect(() => {
-    const savedDiscountCode = localStorage.getItem('discountCode');
-    if (savedDiscountCode) {
-      setDiscountCode(savedDiscountCode);
-      setEnteredCode(savedDiscountCode);
-      setDiscountAmount(10);
-    }
-  }, []);
-
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
-  };
-
-  const handleApplyDiscount = () => {
-    if (!enteredCode) {
-      setCodeError('Please enter a discount code');
-      return;
-    }
-
-    const savedDiscountCode = localStorage.getItem('discountCode');
-    if (savedDiscountCode && enteredCode.toUpperCase() === savedDiscountCode.toUpperCase()) {
-      setDiscountCode(savedDiscountCode);
-      setDiscountAmount(10);
-      setCodeError('');
-    } else if (enteredCode.toUpperCase() === 'WELCOME10' || enteredCode.toUpperCase() === 'FIRST10') {
-      setDiscountCode(enteredCode.toUpperCase());
-      setDiscountAmount(10);
-      setCodeError('');
-    } else {
-      setCodeError('Invalid or expired discount code');
-      setDiscountCode('');
-      setDiscountAmount(0);
-    }
   };
 
   // NEW FUNCTION: Handle the initial order form submission
@@ -247,20 +309,12 @@ const StepFour = ({ formData, setFormData, prevStep, onSubmit, loading, error, c
       return;
     }
     
-    // Save discount code in localStorage for next time
-    if (discountCode) {
-      localStorage.setItem('discountCode', discountCode);
-    }
-    
     // Show payment form after validation passes
     setShowPaymentForm(true);
   };
 
   const handleSuccessfulPayment = (paymentResult) => {
     setPaymentSuccess(true);
-    
-    // Clear discount code from localStorage after successful payment
-    if (discountCode) localStorage.removeItem('discountCode');
     
     // If there's an orderId, store it
     if (paymentResult && paymentResult.orderId) {
@@ -284,11 +338,9 @@ const StepFour = ({ formData, setFormData, prevStep, onSubmit, loading, error, c
         Review your order and provide your contact information.
       </p>
 
-      <OrderSummary
-        formData={formData}
-        discountCode={discountCode}
-        discountAmount={discountAmount}
-      />
+      <OrderSummary />
+
+      <PromoCodeSection />
 
       {paymentSuccess ? (
         // Success message after payment
@@ -376,42 +428,6 @@ const StepFour = ({ formData, setFormData, prevStep, onSubmit, loading, error, c
             </div>
           </div>
 
-          <div className="mb-8 bg-white/5 rounded-lg p-6 border border-white/10">
-            <h4 className="font-semibold mb-4">Discount Code</h4>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <input
-                type="text"
-                value={enteredCode}
-                onChange={(e) => setEnteredCode(e.target.value)}
-                placeholder="Enter your discount code"
-                className="flex-grow p-3 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-accent transition-colors"
-              />
-              <button
-                type="button"
-                onClick={handleApplyDiscount}
-                className="px-6 py-3 bg-accent text-dark font-medium rounded-lg hover:bg-accent-alt transition-colors"
-              >
-                Apply Code
-              </button>
-            </div>
-
-            {codeError && (
-              <p className="text-romantic text-sm mt-2">
-                <i className="fas fa-exclamation-circle mr-1"></i>
-                {codeError}
-              </p>
-            )}
-
-            {discountCode && discountAmount > 0 && (
-              <div className="mt-3 p-3 bg-accent/10 border border-accent/20 rounded-lg flex items-center">
-                <i className="fas fa-check-circle text-accent mr-2"></i>
-                <span>
-                  <strong>{discountCode}</strong> applied: {discountAmount}% discount
-                </span>
-              </div>
-            )}
-          </div>
-
           {error && (
             <div className="bg-romantic/10 border border-romantic rounded-lg p-4 mb-6">
               <i className="fas fa-exclamation-circle mr-2"></i>
@@ -451,7 +467,7 @@ const StepFour = ({ formData, setFormData, prevStep, onSubmit, loading, error, c
         // PART 2: Payment Form (shown after clicking Complete Order)
         <CheckoutForm
           formData={formData}
-          discountAmount={discountAmount}
+          discountAmount={promoDiscount}
           onSuccessfulPayment={handleSuccessfulPayment}
         />
       )}

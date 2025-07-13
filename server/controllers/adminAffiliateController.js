@@ -69,6 +69,15 @@ const getAllAffiliates = async (req, res) => {
         u.created_at as user_registered_at,
         pc.code as affiliate_code,
         pc.current_uses as code_uses,
+        a.application_date,
+        a.approval_date,
+        a.denial_date,
+        a.next_allowed_application_date,
+        a.content_platforms,
+        a.audience_info,
+        a.promotion_strategy,
+        a.portfolio_links,
+        a.denial_reason,
         
         -- Commission stats
         COUNT(DISTINCT c.id) as total_commissions,
@@ -91,7 +100,7 @@ const getAllAffiliates = async (req, res) => {
       LEFT JOIN commissions c ON c.affiliate_id = a.id
       LEFT JOIN referral_events re ON re.code_id = pc.id
       ${whereClause}
-      GROUP BY a.id, u.name, u.email, u.created_at, pc.code, pc.current_uses, a.created_at, a.status, a.balance, a.total_paid, a.commission_rate
+      GROUP BY a.id, u.name, u.email, u.created_at, pc.code, pc.current_uses
       ORDER BY ${validSortBy === 'name' ? 'u.name' : validSortBy === 'email' ? 'u.email' : `a.${validSortBy}`} ${validSortOrder}
       LIMIT ? OFFSET ?
     `, [...queryParams, parseInt(limit), offset]);
@@ -206,10 +215,7 @@ const approveAffiliate = async (req, res) => {
     }
 
     if (!isUnique) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to generate unique affiliate code'
-      });
+      throw new Error('Failed to generate unique affiliate code');
     }
 
     // Create affiliate promo code
@@ -599,11 +605,13 @@ const createDiscountCode = async (req, res) => {
       });
     }
 
-    // Create discount code
-    await pool.query(`
+    // Insert new promo code
+    const [result] = await pool.query(`
       INSERT INTO promo_codes (
-        code, name, type, created_by, discount_amount, is_percentage,
-        max_uses, max_uses_per_user, starts_at, expires_at, is_active
+        code, name, type, created_by, 
+        discount_amount, is_percentage, 
+        max_uses, max_uses_per_user,
+        starts_at, expires_at, is_active
       ) VALUES (?, ?, 'discount', ?, ?, ?, ?, ?, ?, ?, TRUE)
     `, [
       code.toUpperCase(),
@@ -617,14 +625,12 @@ const createDiscountCode = async (req, res) => {
       expiresAt || null
     ]);
 
-    res.status(200).json({
+    res.status(201).json({
       success: true,
       message: 'Discount code created successfully',
       data: {
-        code: code.toUpperCase(),
-        name,
-        discount_amount: discountAmount,
-        is_percentage: isPercentage
+        id: result.insertId,
+        code: code.toUpperCase()
       }
     });
     
@@ -645,6 +651,7 @@ const updatePromoCode = async (req, res) => {
     const {
       name,
       discountAmount,
+      isPercentage,
       maxUses,
       maxUsesPerUser,
       startsAt,
@@ -668,8 +675,19 @@ const updatePromoCode = async (req, res) => {
           message: 'Discount amount must be greater than 0'
         });
       }
+      if (isPercentage && discountAmount > 100) {
+        return res.status(400).json({
+          success: false,
+          message: 'Percentage discount cannot be greater than 100%'
+        });
+      }
       updateFields.push('discount_amount = ?');
       updateValues.push(discountAmount);
+    }
+
+    if (isPercentage !== undefined) {
+      updateFields.push('is_percentage = ?');
+      updateValues.push(isPercentage);
     }
 
     if (maxUses !== undefined) {
@@ -704,6 +722,7 @@ const updatePromoCode = async (req, res) => {
       });
     }
 
+    updateFields.push('updated_at = CURRENT_TIMESTAMP');
     updateValues.push(codeId);
 
     const [result] = await pool.query(`
@@ -763,92 +782,66 @@ const getAffiliateAnalytics = async (req, res) => {
         -- Commission stats
         COUNT(DISTINCT c.id) as total_commissions,
         SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END) as total_commissions_paid,
-        SUM(CASE WHEN c.status = 'pending' THEN c.amount ELSE 0 END) as pending_commissions,
+        SUM(CASE WHEN c.status = 'pending' THEN c.amount ELSE 0 END) as total_commissions_pending,
         
-        -- Referral stats
-        COUNT(DISTINCT re.id) as total_referral_events,
+        -- Conversion funnel
+        COUNT(DISTINCT re.id) as total_events,
         COUNT(DISTINCT CASE WHEN re.event_type = 'click' THEN re.id END) as total_clicks,
         COUNT(DISTINCT CASE WHEN re.event_type = 'signup' THEN re.id END) as total_signups,
-        COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) as total_conversions,
-        SUM(CASE WHEN re.event_type = 'purchase' THEN re.conversion_value ELSE 0 END) as total_revenue
+        COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) as total_purchases,
+        SUM(CASE WHEN re.event_type = 'purchase' THEN re.conversion_value ELSE 0 END) as total_revenue_generated
         
       FROM affiliates a
-      LEFT JOIN commissions c ON c.affiliate_id = a.id
-      LEFT JOIN promo_codes pc ON pc.affiliate_id = a.id AND pc.type = 'affiliate'
-      LEFT JOIN referral_events re ON re.code_id = pc.id
-      WHERE 1=1 ${dateFilter}
-    `, dateParams);
+      LEFT JOIN commissions c ON c.affiliate_id = a.id ${dateFilter}
+      LEFT JOIN promo_codes pc ON pc.affiliate_id = a.id
+      LEFT JOIN referral_events re ON re.code_id = pc.id ${dateFilter}
+      WHERE 1=1
+      ${affiliateId ? 'AND a.id = ?' : ''}
+    `, affiliateId ? [affiliateId] : []);
 
     // Top performing affiliates
     const [topAffiliates] = await pool.query(`
       SELECT 
         a.id,
-        u.name,
-        u.email,
+        u.name as affiliate_name,
         pc.code as affiliate_code,
-        COUNT(DISTINCT c.id) as total_commissions,
-        SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END) as total_earnings,
+        a.commission_rate,
         COUNT(DISTINCT re.id) as total_clicks,
         COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) as conversions,
-        SUM(CASE WHEN re.event_type = 'purchase' THEN re.conversion_value ELSE 0 END) as revenue_generated
+        SUM(CASE WHEN re.event_type = 'purchase' THEN re.conversion_value ELSE 0 END) as revenue_generated,
+        SUM(CASE WHEN c.status = 'paid' THEN c.amount ELSE 0 END) as commissions_paid
       FROM affiliates a
       JOIN users u ON a.user_id = u.id
-      LEFT JOIN promo_codes pc ON pc.affiliate_id = a.id AND pc.type = 'affiliate'
-      LEFT JOIN commissions c ON c.affiliate_id = a.id
-      LEFT JOIN referral_events re ON re.code_id = pc.id
-      WHERE a.status = 'approved' ${dateFilter}
-      GROUP BY a.id, u.name, u.email, pc.code
+      LEFT JOIN promo_codes pc ON pc.affiliate_id = a.id
+      LEFT JOIN referral_events re ON re.code_id = pc.id ${dateFilter}
+      LEFT JOIN commissions c ON c.affiliate_id = a.id ${dateFilter}
+      WHERE a.status = 'approved'
+      GROUP BY a.id, u.name, pc.code, a.commission_rate
       ORDER BY revenue_generated DESC
       LIMIT 10
-    `, dateParams);
+    `);
 
-    // Daily/weekly performance data for charts
-    const [performanceData] = await pool.query(`
-      SELECT 
-        DATE(re.created_at) as date,
-        COUNT(DISTINCT CASE WHEN re.event_type = 'click' THEN re.id END) as clicks,
-        COUNT(DISTINCT CASE WHEN re.event_type = 'signup' THEN re.id END) as signups,
-        COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) as conversions,
-        SUM(CASE WHEN re.event_type = 'purchase' THEN re.conversion_value ELSE 0 END) as revenue
-      FROM referral_events re
-      JOIN promo_codes pc ON re.code_id = pc.id
-      WHERE pc.type = 'affiliate' ${dateFilter}
-      GROUP BY DATE(re.created_at)
-      ORDER BY date DESC
-      LIMIT 30
-    `, dateParams);
-
-    // Commission breakdown by status
-    const [commissionBreakdown] = await pool.query(`
-      SELECT 
-        c.status,
-        COUNT(*) as count,
-        SUM(c.amount) as total_amount
-      FROM commissions c
-      WHERE 1=1 ${dateFilter}
-      GROUP BY c.status
-    `, dateParams);
-
+    // Calculate conversion rates
     const stats = overallStats[0];
-    const conversionRate = stats.total_clicks > 0 
-      ? Math.round((stats.total_conversions / stats.total_clicks) * 10000) / 100 
-      : 0;
+    const conversionRates = {
+      click_to_signup: stats.total_clicks > 0 
+        ? Math.round((stats.total_signups / stats.total_clicks) * 10000) / 100 
+        : 0,
+      signup_to_purchase: stats.total_signups > 0 
+        ? Math.round((stats.total_purchases / stats.total_signups) * 10000) / 100 
+        : 0,
+      click_to_purchase: stats.total_clicks > 0 
+        ? Math.round((stats.total_purchases / stats.total_clicks) * 10000) / 100 
+        : 0
+    };
 
     res.status(200).json({
       success: true,
       data: {
-        overall_stats: {
-          ...stats,
-          conversion_rate: conversionRate
-        },
-        top_affiliates: topAffiliates.map(affiliate => ({
-          ...affiliate,
-          conversion_rate: affiliate.total_clicks > 0 
-            ? Math.round((affiliate.conversions / affiliate.total_clicks) * 10000) / 100 
-            : 0
-        })),
-        performance_chart: performanceData.reverse(),
-        commission_breakdown: commissionBreakdown
+        period,
+        overview: stats,
+        conversion_rates: conversionRates,
+        top_affiliates: topAffiliates
       }
     });
     
@@ -862,7 +855,7 @@ const getAffiliateAnalytics = async (req, res) => {
   }
 };
 
-// Get payout requests and history
+// Get payout requests
 const getPayoutRequests = async (req, res) => {
   try {
     const {
@@ -873,6 +866,7 @@ const getPayoutRequests = async (req, res) => {
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
     
+    // Build WHERE clause
     let whereClause = '';
     let queryParams = [];
     
@@ -880,19 +874,21 @@ const getPayoutRequests = async (req, res) => {
       whereClause = 'WHERE ap.status = ?';
       queryParams.push(status);
     }
-
+    
     // Get total count
     const [countResult] = await pool.query(`
-      SELECT COUNT(*) as total FROM affiliate_payouts ap ${whereClause}
+      SELECT COUNT(*) as total
+      FROM affiliate_payouts ap
+      ${whereClause}
     `, queryParams);
     
     const totalPayouts = countResult[0].total;
-
-    // Get payout requests
+    
+    // Get payouts with details
     const [payouts] = await pool.query(`
       SELECT 
         ap.*,
-        a.user_id,
+        a.commission_rate,
         u.name as affiliate_name,
         u.email as affiliate_email,
         pc.code as affiliate_code
@@ -928,7 +924,7 @@ const getPayoutRequests = async (req, res) => {
   }
 };
 
-// Process payout (mark as completed)
+// Process payout
 const processPayout = async (req, res) => {
   const connection = await pool.getConnection();
   
@@ -936,13 +932,26 @@ const processPayout = async (req, res) => {
     await connection.beginTransaction();
     
     const { payoutId } = req.params;
-    const { stripeTransferId, adminNotes } = req.body;
+    const { 
+      action, // 'approve' or 'reject'
+      processingNotes,
+      transactionId 
+    } = req.body;
+    
+    if (!['approve', 'reject'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Action must be either approve or reject'
+      });
+    }
 
     // Get payout details
-    const [payoutRows] = await connection.query(
-      'SELECT * FROM affiliate_payouts WHERE id = ?',
-      [payoutId]
-    );
+    const [payoutRows] = await connection.query(`
+      SELECT ap.*, a.balance, a.user_id 
+      FROM affiliate_payouts ap
+      JOIN affiliates a ON ap.affiliate_id = a.id
+      WHERE ap.id = ?
+    `, [payoutId]);
 
     if (payoutRows.length === 0) {
       return res.status(404).json({
@@ -960,31 +969,80 @@ const processPayout = async (req, res) => {
       });
     }
 
-    // Update payout status
-    await connection.query(`
-      UPDATE affiliate_payouts SET 
-        status = 'completed',
-        stripe_transfer_id = ?,
-        admin_notes = ?,
-        completed_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `, [stripeTransferId || null, adminNotes || null, payoutId]);
+    if (action === 'approve') {
+      // Update payout status
+      await connection.query(`
+        UPDATE affiliate_payouts SET 
+          status = 'paid',
+          paid_date = CURRENT_TIMESTAMP,
+          transaction_id = ?,
+          processing_notes = ?,
+          processed_by = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `, [
+        transactionId || null,
+        processingNotes || null,
+        req.user.id,
+        payoutId
+      ]);
 
-    // Update affiliate total_paid
-    await connection.query(
-      'UPDATE affiliates SET total_paid = total_paid + ? WHERE id = ?',
-      [payout.amount, payout.affiliate_id]
-    );
+      // Update affiliate balance and total_paid
+      await connection.query(`
+        UPDATE affiliates SET 
+          balance = balance - ?,
+          total_paid = total_paid + ?,
+          last_payout_date = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `, [
+        payout.amount,
+        payout.amount,
+        payout.affiliate_id
+      ]);
+
+      // Update commission statuses
+      const commissionIds = JSON.parse(payout.commission_ids || '[]');
+      if (commissionIds.length > 0) {
+        await connection.query(`
+          UPDATE commissions SET 
+            status = 'paid',
+            paid_date = CURRENT_TIMESTAMP,
+            payout_id = ?
+          WHERE id IN (?)
+        `, [payoutId, commissionIds]);
+      }
+    } else {
+      // Reject payout
+      await connection.query(`
+        UPDATE affiliate_payouts SET 
+          status = 'rejected',
+          processing_notes = ?,
+          processed_by = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `, [
+        processingNotes || 'Payout rejected by admin',
+        req.user.id,
+        payoutId
+      ]);
+
+      // Reset commission statuses to pending
+      const commissionIds = JSON.parse(payout.commission_ids || '[]');
+      if (commissionIds.length > 0) {
+        await connection.query(`
+          UPDATE commissions SET 
+            payout_id = NULL
+          WHERE id IN (?)
+        `, [commissionIds]);
+      }
+    }
 
     await connection.commit();
     
     res.status(200).json({
       success: true,
-      message: 'Payout processed successfully',
-      data: {
-        payout_id: payoutId,
-        amount: payout.amount
-      }
+      message: `Payout ${action === 'approve' ? 'approved' : 'rejected'} successfully`
     });
     
   } catch (error) {

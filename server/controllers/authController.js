@@ -68,6 +68,17 @@ exports.register = async (req, res) => {
       [name, email, hashedPassword, 'user']
     );
     
+    const affiliateRef = req.cookies?.affiliate_ref || req.body?.affiliate_ref;
+if (affiliateRef) {
+  const { trackReferralEvent } = require('./affiliateController');
+  await trackReferralEvent({
+    body: { code: affiliateRef, eventType: 'signup', sessionId: req.session?.id || null },
+    user: { id: result.insertId },
+    ip: req.ip,
+    headers: req.headers
+  });
+}
+    
     // Generate JWT token
     const token = jwt.sign(
       { id: result.insertId, name, email, role: 'user' },
