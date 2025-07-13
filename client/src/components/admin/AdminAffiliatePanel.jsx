@@ -1,4 +1,4 @@
-// client/src/components/admin/AdminAffiliatePanel.jsx - COMPLETE FILE WITH ALL ORIGINAL FUNCTIONALITY + FIXES
+// client/src/components/admin/AdminAffiliatePanel.jsx - FIXED VERSION
 import { useState, useEffect } from 'react';
 import { adminAffiliateService } from '../../services/affiliateService';
 
@@ -26,7 +26,7 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-// 🔧 FIXED: Promo Code Management Component with enhanced data handling and debugging
+// 🔧 FIXED: Promo Code Management Component with correct response structure handling
 const PromoCodeManager = () => {
   const [promoCodes, setPromoCodes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -61,7 +61,7 @@ const PromoCodeManager = () => {
       
       console.log('[DEBUG] Raw promo codes response:', response);
       
-      // 🔧 FIX: Handle different response structures robustly
+      // 🔧 FIX: Handle the correct response structure from your backend
       let codes = [];
       let debugData = {
         responseReceived: !!response,
@@ -69,7 +69,13 @@ const PromoCodeManager = () => {
         timestamp: new Date().toISOString()
       };
       
-      if (response?.data?.codes) {
+      // Your backend returns: { success: true, data: { codes: [...], pagination: {...} } }
+      // Axios wraps this in response.data
+      // So the path is: response.data.data.codes
+      if (response?.data?.data?.codes) {
+        codes = response.data.data.codes;
+        debugData.dataPath = 'response.data.data.codes';
+      } else if (response?.data?.codes) {
         codes = response.data.codes;
         debugData.dataPath = 'response.data.codes';
       } else if (response?.data && Array.isArray(response.data)) {
@@ -83,6 +89,7 @@ const PromoCodeManager = () => {
         debugData.dataPath = 'response (direct array)';
       } else {
         debugData.dataPath = 'no valid data found';
+        debugData.fullResponse = response;
         console.warn('[DEBUG] Unexpected response structure:', response);
       }
       
@@ -228,7 +235,7 @@ const PromoCodeManager = () => {
         </button>
       </div>
 
-      {/* Debug panel for development */}
+      {/* Enhanced debug panel for development */}
       {process.env.NODE_ENV === 'development' && debugInfo && (
         <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 text-sm">
           <h4 className="font-bold mb-2">Promo Codes Debug:</h4>
@@ -251,6 +258,14 @@ const PromoCodeManager = () => {
               <strong>Sample Code:</strong>
               <pre className="text-xs bg-black/20 p-2 rounded mt-1">
                 {JSON.stringify(debugInfo.sampleCode, null, 2)}
+              </pre>
+            </div>
+          )}
+          {debugInfo.fullResponse && (
+            <div className="mt-2">
+              <strong>Full Response Structure:</strong>
+              <pre className="text-xs bg-black/20 p-2 rounded mt-1 max-h-40 overflow-y-auto">
+                {JSON.stringify(debugInfo.fullResponse, null, 2)}
               </pre>
             </div>
           )}
@@ -541,7 +556,7 @@ const PromoCodeManager = () => {
   );
 };
 
-// Affiliate Management Component
+// Affiliate Management Component (unchanged)
 const AffiliateManager = () => {
   const [affiliates, setAffiliates] = useState([]);
   const [loading, setLoading] = useState(true);
