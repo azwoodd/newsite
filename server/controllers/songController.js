@@ -1,143 +1,134 @@
 const { query } = require('../config/db');
 
-// Get public showcase songs
+// small helpers
+const toBool = v => v === 1 || v === true || v === '1';
+const normalizeAsset = p => {
+  if (!p) return null;
+  // ensure it’s served from /uploads/... regardless of how it’s stored
+  const clean = String(p).replace(/^\/+/, ''); // strip leading slashes
+  return clean.startsWith('uploads/') ? `/${clean}` : `/uploads/${clean}`;
+};
+
+// GET /api/songs/showcase
 exports.getShowcaseSongs = async (req, res) => {
   try {
-    // Get category filter and limit
-    const { category, limit } = req.query;
-    
-    let showcaseQuery = `
-      SELECT * FROM showcase_items 
+    // sanitize inputs
+    const rawLimit = parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(50, rawLimit)) : 6;
+
+    const category = (req.query.category || '').trim().toLowerCase();
+
+    let sql = `
+      SELECT *
+      FROM showcase_items
       WHERE is_public = 1
     `;
-    
-    const queryParams = [];
-    
-    // Add category filter if provided
+    const params = [];
+
     if (category && category !== 'all') {
-      showcaseQuery += ' AND category = ?';
-      queryParams.push(category);
+      // case-insensitive match
+      sql += ` AND LOWER(category) = ?`;
+      params.push(category);
     }
-    
-    // Order by featured first, then view_count, then created date
-    showcaseQuery += ' ORDER BY featured DESC, view_count DESC, created_at DESC';
-    
-    // Add limit if provided
-    if (limit && !isNaN(parseInt(limit))) {
-      showcaseQuery += ' LIMIT ?';
-      queryParams.push(parseInt(limit));
-    }
-    
-    const showcaseItems = await query(showcaseQuery, queryParams);
-    
-    // Format URLs for frontend
-    const formattedItems = showcaseItems.map(item => ({
-      ...item,
-      image: `/uploads/${item.image_path}`,
-      trackUrl: `/uploads/${item.audio_path}`,
-      featured: item.featured === 1,
-      isPublic: item.is_public === 1
+
+    sql += `
+      ORDER BY featured DESC, view_count DESC, created_at DESC
+      LIMIT ?
+    `;
+    params.push(limit);
+
+    const rows = await query(sql, params);
+
+    const items = rows.map(r => ({
+      ...r,
+      image: normalizeAsset(r.image_path),
+      trackUrl: normalizeAsset(r.audio_path),
+      featured: toBool(r.featured),
+      isPublic: toBool(r.is_public),
     }));
-    
-    res.status(200).json({
-      success: true,
-      showcaseItems: formattedItems
-    });
-  } catch (error) {
-    console.error('Get showcase songs error:', error);
-    res.status(500).json({
+
+    return res.status(200).json({ success: true, items });
+  } catch (err) {
+    console.error('Get showcase songs error:', err);
+    return res.status(500).json({
       success: false,
-      message: 'Server error while fetching showcase songs'
+      message: 'Server error while fetching showcase songs',
     });
   }
 };
 
-// Get showcase song by ID
+// GET /api/songs/showcase/:id
 exports.getShowcaseSongById = async (req, res) => {
   try {
-    const songId = req.params.id;
-    
-    const songs = await query('SELECT * FROM showcase_items WHERE id = ?', [songId]);
-    
-    if (songs.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Showcase song not found'
-      });
+    const songId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(songId)) {
+      return res.status(400).json({ success: false, message: 'Invalid ID' });
     }
-    
-    const song = songs[0];
-    
-    // Format URLs for frontend
-    const formattedSong = {
-      ...song,
-      image: `/uploads/${song.image_path}`,
-      trackUrl: `/uploads/${song.audio_path}`,
-      featured: song.featured === 1,
-      isPublic: song.is_public === 1
+
+    const rows = await query('SELECT * FROM showcase_items WHERE id = ?', [songId]);
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Showcase song not found' });
+    }
+
+    const r = rows[0];
+    const item = {
+      ...r,
+      image: normalizeAsset(r.image_path),
+      trackUrl: normalizeAsset(r.audio_path),
+      featured: toBool(r.featured),
+      isPublic: toBool(r.is_public),
     };
-    
-    res.status(200).json({
-      success: true,
-      showcaseItem: formattedSong
-    });
-  } catch (error) {
-    console.error('Get showcase song by ID error:', error);
-    res.status(500).json({
+
+    return res.status(200).json({ success: true, item });
+  } catch (err) {
+    console.error('Get showcase song by ID error:', err);
+    return res.status(500).json({
       success: false,
-      message: 'Server error while fetching showcase song'
+      message: 'Server error while fetching showcase song',
     });
   }
 };
 
-// Get showcase categories
-exports.getShowcaseCategories = async (req, res) => {
+// GET /api/songs/showcase/categories
+exports.getShowcaseCategories = async (_req, res) => {
   try {
-    const categoriesResult = await query(
+    const rows = await query(
       'SELECT DISTINCT category FROM showcase_items WHERE is_public = 1 ORDER BY category'
     );
-    
+
     const categories = [
       { id: 'all', name: 'All Works' },
-      ...categoriesResult.map(item => ({
-        id: item.category,
-        name: item.category.charAt(0).toUpperCase() + item.category.slice(1)
-      }))
+      ...rows
+        .map(x => (x.category || '').trim())
+        .filter(Boolean)
+        .map(c => ({ id: c.toLowerCase(), name: c.charAt(0).toUpperCase() + c.slice(1) })),
     ];
-    
-    res.status(200).json({
-      success: true,
-      categories
-    });
-  } catch (error) {
-    console.error('Get showcase categories error:', error);
-    res.status(500).json({
+
+    return res.status(200).json({ success: true, categories });
+  } catch (err) {
+    console.error('Get showcase categories error:', err);
+    return res.status(500).json({
       success: false,
-      message: 'Server error while fetching showcase categories'
+      message: 'Server error while fetching showcase categories',
     });
   }
 };
 
-// Increment view count for a showcase song
+// POST /api/songs/showcase/:id/view (or wherever you mount it)
 exports.incrementViewCount = async (req, res) => {
   try {
-    const songId = req.params.id;
-    
-    // Increment view count
-    await query(
-      'UPDATE showcase_items SET view_count = view_count + 1 WHERE id = ?',
-      [songId]
-    );
-    
-    res.status(200).json({
-      success: true,
-      message: 'View count incremented'
-    });
-  } catch (error) {
-    console.error('Increment view count error:', error);
-    res.status(500).json({
+    const songId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(songId)) {
+      return res.status(400).json({ success: false, message: 'Invalid ID' });
+    }
+
+    await query('UPDATE showcase_items SET view_count = view_count + 1 WHERE id = ?', [songId]);
+    return res.status(200).json({ success: true, message: 'View count incremented' });
+  } catch (err) {
+    console.error('Increment view count error:', err);
+    return res.status(500).json({
       success: false,
-      message: 'Server error while updating view count'
+      message: 'Server error while updating view count',
     });
   }
 };

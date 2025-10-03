@@ -184,3 +184,4 @@ router.get('/promo-codes', async (req, res) => {
 });
 
 // ... existing code ...
+module.exports = router;
