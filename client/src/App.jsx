@@ -31,6 +31,8 @@ import UserProfile from './components/UserProfile';
 import Showcase from './components/Showcase';
 import NotFound from './components/NotFound';
 
+import AuthSuccess from './components/AuthSuccess';
+
 // Homepage component
 const HomePage = ({ scrolled }) => {
   return (
@@ -131,6 +133,7 @@ const App = () => {
                   </RequireAuth>
                 } 
               />
+              <Route path="/auth/success" element={<AuthSuccess />} />
               
               {/* Public routes */}
               <Route path="/showcase" element={<Showcase />} />
