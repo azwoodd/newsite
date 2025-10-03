@@ -21,11 +21,15 @@ const server = http.createServer(app);
 const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = [
-      process.env.CLIENT_URL || 'https://songsculptors.com',
-      'http://localhost:3000',
-      'http://localhost:5173', // Vite default port
-      'http://localhost' // For your current setup
-    ];
+  process.env.CLIENT_URL || 'https://songsculptors.com',
+  'http://51.75.20.71:5000',
+  'http://51.75.20.71',
+  'https://songsculptors.com',
+  'https://www.songsculptors.com',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost'
+];
     
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
@@ -53,32 +57,36 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       connectSrc: [
-        "'self'", 
-        "https://*.stripe.com", 
-        "https://*.paypal.com", 
-        process.env.CLIENT_URL || 'https://songsculptors.com'
-      ],
-      frameSrc: ["'self'", "https://*.stripe.com", "https://*.paypal.com"],
-      scriptSrc: [
-        "'self'", 
-        "'unsafe-inline'", 
-        "https://*.stripe.com", 
-        "https://*.paypal.com",
-        "https://js.stripe.com"
-      ],
-      styleSrc: [
-        "'self'", 
-        "'unsafe-inline'", 
-        "https://cdnjs.cloudflare.com",  // Font Awesome
-        "https://fonts.googleapis.com"   // Google Fonts
-      ],
-      imgSrc: [
-  "'self'", 
-  "data:", 
-  "https://*.stripe.com", 
+  "'self'",
+  "https://*.stripe.com",
   "https://*.paypal.com",
-  "https://developers.google.com"
+  "https://accounts.google.com",
+  "https://apis.google.com",
+  process.env.CLIENT_URL || 'https://songsculptors.com'
 ],
+frameSrc: [
+  "'self'",
+  "https://*.stripe.com",
+  "https://*.paypal.com",
+  "https://accounts.google.com"
+],
+scriptSrc: [
+  "'self'",
+  "'unsafe-inline'",
+  "https://*.stripe.com",
+  "https://*.paypal.com",
+  "https://js.stripe.com",
+  "https://accounts.google.com",
+  "https://apis.google.com"
+],
+imgSrc: [
+  "'self'",
+  "data:",
+  "https://*.stripe.com",
+  "https://*.paypal.com",
+  "https://developers.google.com",
+  "https://accounts.google.com"
+]
       fontSrc: [
         "'self'", 
         "https://fonts.gstatic.com",     // Google Fonts
