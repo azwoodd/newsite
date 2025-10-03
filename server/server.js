@@ -52,49 +52,60 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Security middleware with relaxed CSP for payment providers
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      connectSrc: [
-  "'self'",
-  "https://*.stripe.com",
-  "https://*.paypal.com",
-  "https://accounts.google.com",
-  "https://apis.google.com",
-  process.env.CLIENT_URL || 'https://songsculptors.com'
-],
-frameSrc: [
-  "'self'",
-  "https://*.stripe.com",
-  "https://*.paypal.com",
-  "https://accounts.google.com"
-],
-scriptSrc: [
-  "'self'",
-  "'unsafe-inline'",
-  "https://*.stripe.com",
-  "https://*.paypal.com",
-  "https://js.stripe.com",
-  "https://accounts.google.com",
-  "https://apis.google.com"
-],
-imgSrc: [
-  "'self'",
-  "data:",
-  "https://*.stripe.com",
-  "https://*.paypal.com",
-  "https://developers.google.com",
-  "https://accounts.google.com"
-]
-      fontSrc: [
-        "'self'", 
-        "https://fonts.gstatic.com",     // Google Fonts
-        "https://cdnjs.cloudflare.com"   // Font Awesome
-      ]
-    }
-  }
-}));
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        connectSrc: [
+          "'self'",
+          "https://*.stripe.com",
+          "https://*.paypal.com",
+          "https://accounts.google.com",
+          "https://apis.google.com",
+          process.env.CLIENT_URL || "https://songsculptors.com",
+        ],
+        frameSrc: [
+          "'self'",
+          "https://*.stripe.com",
+          "https://*.paypal.com",
+          "https://accounts.google.com",
+        ],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://*.stripe.com",
+          "https://*.paypal.com",
+          "https://js.stripe.com",
+          "https://accounts.google.com",
+          "https://apis.google.com",
+        ],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://cdnjs.cloudflare.com",
+          "https://fonts.googleapis.com",
+        ],
+        imgSrc: [
+          "'self'",
+          "data:",
+          "https://*.stripe.com",
+          "https://*.paypal.com",
+          "https://developers.google.com",
+          "https://accounts.google.com",
+        ],
+        fontSrc: [
+          "'self'",
+          "https://fonts.gstatic.com",
+          "https://cdnjs.cloudflare.com",
+        ],
+      },
+    },
+    // these avoid blocking some third-party embeds/assets in prod
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
 
 // Create necessary directories
 const ensureDirectories = () => {
