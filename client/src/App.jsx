@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import AffiliateTracker from './components/AffiliateTracker';
 import { AuthProvider } from './context/AuthContext';
 import { MusicPlayerProvider } from './components/GlobalMusicPlayer';
@@ -22,7 +22,7 @@ import Footer from './components/Footer';
 // Auth and dashboard components
 import Login from './components/Login';
 import Signup from './components/Signup';
-import AuthSuccess from './components/AuthSuccess';
+import AuthSuccess from './components/AuthSuccess';   // ← keep only this one
 import Dashboard from './components/Dashboard';
 import AdminDashboard from './components/admin/AdminDashboard';
 import UserProfile from './components/UserProfile';
@@ -31,7 +31,6 @@ import UserProfile from './components/UserProfile';
 import Showcase from './components/Showcase';
 import NotFound from './components/NotFound';
 
-import AuthSuccess from './components/AuthSuccess';
 
 // Homepage component
 const HomePage = ({ scrolled }) => {
@@ -105,8 +104,8 @@ const App = () => {
               
               {/* Auth routes */}
               <Route path="/login" element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
-              <Route path="/auth-success" element={<AuthSuccess />} />
+  <Route path="/signup" element={<Signup />} />
+  <Route path="/auth/success" element={<AuthSuccess />} />
               
               {/* Protected routes */}
               <Route 
@@ -133,7 +132,7 @@ const App = () => {
                   </RequireAuth>
                 } 
               />
-              <Route path="/auth/success" element={<AuthSuccess />} />
+              
               
               {/* Public routes */}
               <Route path="/showcase" element={<Showcase />} />
