@@ -27,17 +27,12 @@ const OrderForm = () => {
     songTheme: '',
     personalStory: '',
     musicStyle: 'modern-pop',
-    package: 'deluxe',
-    addons: [],
-    additionalNotes: '',
+    package: 'essential',
     customerName: currentUser?.name || '',
     customerEmail: currentUser?.email || '',
-    customerPhone: '',
-    additionalRequests: '',
     showInGallery: false
   });
 
-  // Load form data from localStorage on component mount
   useEffect(() => {
     // Check for saved form data
     const savedFormData = localStorage.getItem('songFormData');
@@ -57,7 +52,7 @@ const OrderForm = () => {
       
       // Handle package selection from URL
       const packageType = params.get('package');
-      if (packageType && ['basic', 'deluxe', 'premium'].includes(packageType)) {
+      if (packageType && ['essential', 'signature', 'masterpiece'].includes(packageType)) {
         setFormData(prevData => ({
           ...prevData,
           package: packageType
@@ -149,72 +144,49 @@ const OrderForm = () => {
   // Check if an addon is included in the selected package
   const isAddonIncludedInPackage = (addonType) => {
     // Check if instrumental version is included in Signature or Masterpiece packages
-    if (addonType === 'instrumental' && (formData.package === 'deluxe' || formData.package === 'premium')) {
+    if (addonType === 'instrumental' && (formData.package === 'signature' || formData.package === 'masterpiece')) {
       return true;
     }
     
     // Check if lyric sheet is included in Masterpiece package
-    if (addonType === 'lyric-sheet' && formData.package === 'premium') {
+    if (addonType === 'lyric-sheet' && formData.package === 'masterpiece') {
       return true;
     }
     
     return false;
   };
-
   // Calculate total price
-  const calculateTotalPrice = () => {
-    // Base price based on package
-    let total = 0;
-    switch(formData.package) {
-      case 'basic':
-        total = 39.99;
-        break;
-      case 'deluxe':
-        total = 74.99;
-        break;
-      case 'premium':
-        total = 139.99;
-        break;
-      default:
-        total = 74.99;
-    }
-    
-    // Add addon prices
-    if (formData.addons && formData.addons.length > 0) {
-      formData.addons.forEach(addon => {
-        // Skip addons already included in the package
-        if (isAddonIncludedInPackage(addon)) {
-          return;
-        }
-        
-        switch(addon) {
-          case 'lyric-sheet':
-            total += 14.99;
-            break;
-          case 'instrumental':
-            total += 35;
-            break;
-          case 'expedited':
-            total += 29.99;
-            break;
-          case 'physical-cd':
-            total += 34.99;
-            break;
-          case 'physical-vinyl':
-            total += 119.99;
-            break;
-          case 'extended':
-            total += 49.99;
-            break;
-          case 'streaming':
-            total += 34.99;
-            break;
-        }
-      });
-    }
-    
-    return total;
-  };
+const calculateTotalPrice = () => {
+  let total = 0;
+
+  // base package
+  switch (formData.package) {
+    case 'essential':   total = 39.99; break;
+    case 'signature':   total = 99.99; break;
+    case 'masterpiece': total = 179.99; break;
+    default:            total = 39.99;
+  }
+
+  // add-ons (skip included)
+  if (formData.addons?.length) {
+    formData.addons.forEach(addon => {
+      if (isAddonIncludedInPackage(addon)) return;
+      switch (addon) {
+        case 'lyric-sheet':    total += 14.99; break;
+        case 'instrumental':   total += 35.00; break;
+        case 'expedited':      total += 19.99; break;
+        case 'physical-cd':    total += 24.99; break;
+        case 'physical-vinyl': total += 59.99; break; // placeholder
+        case 'extended':       total += 49.99; break;
+        case 'streaming':      total += 34.99; break;
+      }
+    });
+  }
+
+  // hard cap (belt-and-braces)
+  return Math.min(total, 250.00);
+};
+
 
   // Handle form submission - now just redirects to login if user not logged in
   const handleSubmit = async (paymentResult) => {

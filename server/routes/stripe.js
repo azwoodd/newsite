@@ -177,47 +177,105 @@ router.get('/verify/:paymentIntentId', checkAuth, async (req, res) => {
 });
 
 // Handle Stripe webhooks
-router.post('/webhook', express.raw({type: 'application/json'}), async (req, res) => {
+router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
     const sig = req.headers['stripe-signature'];
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    
+
     if (!endpointSecret) {
       console.warn('⚠️ Stripe webhook secret not configured');
       return res.status(400).json({ success: false, message: 'Webhook secret not configured' });
     }
-    
+
     // Verify webhook signature
     let event;
     try {
       event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
     } catch (err) {
-      console.error(`❌ Webhook signature verification failed:`, err.message);
+      console.error('❌ Webhook signature verification failed:', err.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
-    
+
     console.log(`✅ Webhook received: ${event.type}`);
-    
-    // Handle the event
+
     switch (event.type) {
-      case 'payment_intent.succeeded':
+      case 'payment_intent.succeeded': {
         const paymentIntent = event.data.object;
         console.log(`💰 PaymentIntent succeeded: ${paymentIntent.id}`);
-        // Update your database here
+        try {
+          const { pool } = require('../config/db');
+          const orderId = paymentIntent.metadata?.orderId;
+          if (orderId) {
+            await pool.query(
+              `UPDATE orders 
+                 SET payment_status='paid', payment_id=?, payment_details=?, updated_at=NOW()
+               WHERE id=?`,
+              [
+                paymentIntent.id,
+                JSON.stringify({
+                  provider: 'stripe',
+                  amount: paymentIntent.amount,
+                  currency: paymentIntent.currency,
+                  status: paymentIntent.status
+                }),
+                orderId
+              ]
+            );
+            console.log(`✅ Order ${orderId} status updated to paid`);
+          } else {
+            console.warn('⚠️ No order ID found in payment intent metadata');
+          }
+        } catch (dbError) {
+          console.error('❌ Error updating order status:', dbError);
+        }
         break;
-      case 'payment_intent.payment_failed':
+      }
+
+      case 'payment_intent.payment_failed': {
         const failedPayment = event.data.object;
         console.log(`❌ Payment failed: ${failedPayment.id}`);
+        try {
+          const { pool } = require('../config/db');
+          const orderId = failedPayment.metadata?.orderId;
+          if (orderId) {
+            await pool.query(
+              `UPDATE orders 
+                 SET payment_status='failed', payment_id=?, payment_details=?, updated_at=NOW()
+               WHERE id=?`,
+              [
+                failedPayment.id,
+                JSON.stringify({
+                  provider: 'stripe',
+                  error: failedPayment.last_payment_error,
+                  status: failedPayment.status
+                }),
+                orderId
+              ]
+            );
+            console.log(`✅ Order ${orderId} status updated to failed`);
+          }
+        } catch (dbError) {
+          console.error('❌ Error updating failed order status:', dbError);
+        }
         break;
+      }
+
+      case 'payment_intent.requires_action': {
+        const actionRequired = event.data.object;
+        console.log(`🔐 Payment requires action: ${actionRequired.id}`);
+        break;
+      }
+
       default:
         console.log(`⚠️ Unhandled event type: ${event.type}`);
     }
-    
-    // Return a response to acknowledge receipt of the event
-    res.json({ received: true });
+
+    // 👈 Always acknowledge so Stripe stops retrying
+    return res.sendStatus(200);
   } catch (error) {
-    console.error('❌ Webhook error:', error.message);
-    res.status(500).json({ success: false, message: 'Webhook processing error' });
+    console.error('❌ Webhook handler error:', error);
+    // Return 200 so Stripe doesn’t retry forever on our own internal error
+    return res.sendStatus(200);
   }
 });
 

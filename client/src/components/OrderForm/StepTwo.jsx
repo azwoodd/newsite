@@ -2,15 +2,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useMusicPlayer } from '../../components/GlobalMusicPlayer';
 
-// Style Option Component with enhanced UI and keyboard navigation
+// Style Option Component
 const StyleOption = ({ style, icon, name, selected, onClick, previewUrl, tabIndex }) => {
   const { playTrack } = useMusicPlayer();
   const optionRef = useRef(null);
   
   const handlePreview = (e) => {
     e.stopPropagation();
-    
-    // Play preview if available
     if (previewUrl) {
       playTrack({
         id: `preview-${style}`,
@@ -22,7 +20,6 @@ const StyleOption = ({ style, icon, name, selected, onClick, previewUrl, tabInde
     }
   };
 
-  // Keyboard handling for accessibility
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -33,7 +30,6 @@ const StyleOption = ({ style, icon, name, selected, onClick, previewUrl, tabInde
     }
   };
   
-  // Focus when selected using keyboard navigation
   useEffect(() => {
     if (selected && optionRef.current) {
       optionRef.current.focus();
@@ -57,7 +53,6 @@ const StyleOption = ({ style, icon, name, selected, onClick, previewUrl, tabInde
         <div className="text-2xl text-accent mb-3">
           <i className={`fas fa-${icon}`}></i>
         </div>
-        
         <div className="font-semibold mb-2">{name}</div>
       </div>
       
@@ -70,8 +65,6 @@ const StyleOption = ({ style, icon, name, selected, onClick, previewUrl, tabInde
         aria-label={`Preview ${name} style`}
       >
         <i className="fas fa-play mr-2"></i> Preview
-        
-        {/* Audio preview animation bar */}
         <div className="h-0.5 bg-white/20 rounded-full mt-0 ml-2 relative overflow-hidden w-full">
           <div className={`absolute top-0 left-0 h-full ${selected ? 'w-2/5 bg-accent' : 'w-1/3 bg-white/50'} rounded-px animate-pulse`}></div>
         </div>
@@ -80,12 +73,11 @@ const StyleOption = ({ style, icon, name, selected, onClick, previewUrl, tabInde
   );
 };
 
-// Package Option Component with enhanced selection indication
+// Package Option Component
 const PackageOption = ({ type, name, price, features, selected, onChange }) => {
   const [isHovered, setIsHovered] = useState(false);
   const packageRef = useRef(null);
   
-  // Keyboard handling for accessibility
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -93,7 +85,6 @@ const PackageOption = ({ type, name, price, features, selected, onChange }) => {
     }
   };
   
-  // Focus when selected using keyboard navigation
   useEffect(() => {
     if (selected && packageRef.current) {
       packageRef.current.focus();
@@ -143,84 +134,59 @@ const PackageOption = ({ type, name, price, features, selected, onChange }) => {
 };
 
 const StepTwo = ({ formData, setFormData, nextStep, prevStep }) => {
-  // Changed to maintain both activeCategory and active style independently
   const [activeCategory, setActiveCategory] = useState('pop');
-  const [keyboardNavIndex, setKeyboardNavIndex] = useState(0);
-  
-  // Initialize all style options for each category
+
+  // convenience base
+  const PREVIEW = '/uploads/genre-previews';
+
+  // All style options (wired to your files under /server/uploads/genre-previews)
   const allStyleOptions = {
     pop: [
-      { id: 'modern-pop', name: 'Modern Pop', icon: 'music', previewUrl: '/previews/modern-pop.mp3' },
-      { id: 'pop-ballad', name: 'Pop Ballad', icon: 'guitar', previewUrl: '/previews/pop-ballad.mp3' },
-      { id: 'upbeat-pop', name: 'Upbeat Pop', icon: 'compact-disc', previewUrl: '/previews/upbeat-pop.mp3' },
-      { id: 'pop-rock', name: 'Pop Rock', icon: 'drum', previewUrl: '/previews/pop-rock.mp3' }
+      { id: 'modern-pop',       name: 'Modern Pop',       icon: 'music',        previewUrl: `${PREVIEW}/modern-pop.mp3` },
+      { id: 'pop-ballad',       name: 'Pop Ballad',       icon: 'guitar',       previewUrl: `${PREVIEW}/pop-ballad.mp3` },
+      { id: 'upbeat-pop',       name: 'Upbeat Pop',       icon: 'compact-disc', previewUrl: `${PREVIEW}/upbeat-pop.mp3` },
+      { id: 'pop-rock',         name: 'Pop Rock',         icon: 'drum',         previewUrl: `${PREVIEW}/pop-rock.mp3` }
     ],
     acoustic: [
-      { id: 'acoustic-folk', name: 'Acoustic Folk', icon: 'guitar', previewUrl: '/previews/acoustic-folk.mp3' },
-      { id: 'acoustic-ballad', name: 'Acoustic Ballad', icon: 'music', previewUrl: '/previews/acoustic-ballad.mp3' },
-      { id: 'indie-acoustic', name: 'Indie Acoustic', icon: 'compact-disc', previewUrl: '/previews/indie-acoustic.mp3' }
+      { id: 'acoustic-folk',    name: 'Acoustic Folk',    icon: 'guitar',       previewUrl: `${PREVIEW}/acoustic-folk.mp3` },
+      { id: 'acoustic-ballad',  name: 'Acoustic Ballad',  icon: 'music',        previewUrl: `${PREVIEW}/acoustic-ballad.mp3` },
+      { id: 'indie-acoustic',   name: 'Indie Acoustic',   icon: 'compact-disc', previewUrl: `${PREVIEW}/indie-acoustic.mp3` }
     ],
     rnb: [
-      { id: 'modern-rnb', name: 'Modern R&B', icon: 'music', previewUrl: '/previews/modern-rnb.mp3' },
-      { id: 'soul-rnb', name: 'Soul R&B', icon: 'compact-disc', previewUrl: '/previews/soul-rnb.mp3' },
-      { id: 'smooth-rnb', name: 'Smooth R&B', icon: 'headphones', previewUrl: '/previews/smooth-rnb.mp3' }
+      { id: 'modern-rnb',       name: 'Modern R&B',       icon: 'music',        previewUrl: `${PREVIEW}/modern-rnb.mp3` },
+      { id: 'soul-rnb',         name: 'Soul R&B',         icon: 'compact-disc', previewUrl: `${PREVIEW}/soul-rnb.mp3` },
+      { id: 'smooth-rnb',       name: 'Smooth R&B',       icon: 'headphones',   previewUrl: `${PREVIEW}/smooth-rnb.mp3` }
     ],
     indie: [
-      { id: 'indie-pop', name: 'Indie Pop', icon: 'music', previewUrl: '/previews/indie-pop.mp3' },
-      { id: 'indie-folk', name: 'Indie Folk', icon: 'guitar', previewUrl: '/previews/indie-folk.mp3' },
-      { id: 'indie-electronic', name: 'Indie Electronic', icon: 'compact-disc', previewUrl: '/previews/indie-electronic.mp3' }
+      { id: 'indie-pop',        name: 'Indie Pop',        icon: 'music',        previewUrl: `${PREVIEW}/indie-pop.mp3` },
+      { id: 'indie-folk',       name: 'Indie Folk',       icon: 'guitar',       previewUrl: `${PREVIEW}/indie-folk.mp3` },
+      { id: 'indie-electronic', name: 'Indie Electronic', icon: 'compact-disc', previewUrl: `${PREVIEW}/indie-electronic.mp3` }
     ],
     electronic: [
-      { id: 'electronic-pop', name: 'Electronic Pop', icon: 'music', previewUrl: '/previews/electronic-pop.mp3' },
-      { id: 'chill-electronic', name: 'Chill Electronic', icon: 'headphones', previewUrl: '/previews/chill-electronic.mp3' },
-      { id: 'dance-electronic', name: 'Dance Electronic', icon: 'compact-disc', previewUrl: '/previews/dance-electronic.mp3' }
+      { id: 'pop-electronic',   name: 'Electronic Pop',   icon: 'music',        previewUrl: `${PREVIEW}/pop-electronic.mp3` },
+      { id: 'chill-electronic', name: 'Chill Electronic', icon: 'headphones',   previewUrl: `${PREVIEW}/chill-electronic.mp3` },
+      { id: 'dance-electronic', name: 'Dance Electronic', icon: 'compact-disc', previewUrl: `${PREVIEW}/dance-electronic.mp3` }
     ],
     folk: [
-      { id: 'modern-folk', name: 'Modern Folk', icon: 'guitar', previewUrl: '/previews/modern-folk.mp3' },
-      { id: 'indie-folk', name: 'Indie Folk', icon: 'music', previewUrl: '/previews/indie-folk.mp3' },
-      { id: 'traditional-folk', name: 'Traditional Folk', icon: 'leaf', previewUrl: '/previews/traditional-folk.mp3' }
+      { id: 'modern-folk',      name: 'Modern Folk',      icon: 'guitar',       previewUrl: `${PREVIEW}/modern-folk.mp3` },
+      { id: 'indie-folk',       name: 'Indie Folk',       icon: 'music',        previewUrl: `${PREVIEW}/indie-folk.mp3` }, // recycled
+      { id: 'traditional-folk', name: 'Traditional Folk', icon: 'leaf',         previewUrl: `${PREVIEW}/traditional-folk.mp3` }
     ]
   };
   
   const styleCategories = [
-    { id: 'pop', name: 'Pop' },
-    { id: 'acoustic', name: 'Acoustic' },
-    { id: 'rnb', name: 'R&B' },
-    { id: 'indie', name: 'Indie' },
+    { id: 'pop',        name: 'Pop' },
+    { id: 'acoustic',   name: 'Acoustic' },
+    { id: 'rnb',        name: 'R&B' },
+    { id: 'indie',      name: 'Indie' },
     { id: 'electronic', name: 'Electronic' },
-    { id: 'folk', name: 'Folk' }
+    { id: 'folk',       name: 'Folk' }
   ];
   
-  // Effect to set initial category based on music style
-  useEffect(() => {
-    if (formData.musicStyle) {
-      // Find which category contains this style
-      for (const [category, styles] of Object.entries(allStyleOptions)) {
-        if (styles.some(style => style.id === formData.musicStyle)) {
-          setActiveCategory(category);
-          break;
-        }
-      }
-    } else {
-      // Set default music style if none is selected
-      setFormData({ ...formData, musicStyle: 'modern-pop' });
-    }
-    
-    // Set default package if none is selected
-    if (!formData.package) {
-      setFormData({ ...formData, package: 'deluxe' });
-    }
-  }, []);
-  
-  // Get all available styles based on the active category
-  const getStyleOptions = () => {
-    return allStyleOptions[activeCategory] || [];
-  };
-  
-  // Package options with updated pricing and features
+  // Package options (unchanged except names/pricing you set)
   const packageOptions = [
     {
-      type: 'basic',
+      type: 'essential',
       name: 'Essential',
       price: '39.99',
       features: [
@@ -233,33 +199,50 @@ const StepTwo = ({ formData, setFormData, nextStep, prevStep }) => {
       ]
     },
     {
-      type: 'deluxe',
+      type: 'signature',
       name: 'Signature',
-      price: '74.99',
+      price: '99.99',
       features: [
         'Everything in Essential',
-        'Optional instrumental version',
+        'Instrumental version INCLUDED',
+        'Expedited delivery INCLUDED',
         'Enhanced storytelling with extra emotional detail',
         'Crafted by our most experienced writers',
-        'Delivered faster than Essential plan (priority queue)',
-        'Great for gifts, anniversaries & celebrations'
+        'Priority queue'
       ]
     },
     {
-      type: 'premium',
+      type: 'masterpiece',
       name: 'Masterpiece',
-      price: '139.99',
+      price: '179.99',
       features: [
         'Everything in Signature',
+        'Digital Lyric Sheet INCLUDED',
         'Extra nuanced writing (names, quotes, meaningful moments)',
-        'Includes both instrumental version and digital lyric sheet',
-        'Perfect for milestone occasions and keepsakes'
+        'Perfect for milestone occasions & keepsakes'
       ]
     }
   ];
   
-  // Current style options based on active category
-  const styleOptions = getStyleOptions();
+  // Initialize defaults
+  useEffect(() => {
+    if (formData.musicStyle) {
+      for (const [category, styles] of Object.entries(allStyleOptions)) {
+        if (styles.some(style => style.id === formData.musicStyle)) {
+          setActiveCategory(category);
+          break;
+        }
+      }
+    } else {
+      setFormData({ ...formData, musicStyle: 'modern-pop' });
+    }
+    if (!formData.package) {
+      setFormData({ ...formData, package: 'essential' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  
+  const styleOptions = allStyleOptions[activeCategory] || [];
   
   const handleMusicStyleChange = (style) => {
     setFormData({ ...formData, musicStyle: style });
@@ -269,7 +252,6 @@ const StepTwo = ({ formData, setFormData, nextStep, prevStep }) => {
     setFormData({ ...formData, package: packageType });
   };
   
-  // Handle keyboard navigation for style options
   const handleCategoryKeyNav = (e) => {
     if (e.key === 'ArrowRight') {
       e.preventDefault();
@@ -286,16 +268,8 @@ const StepTwo = ({ formData, setFormData, nextStep, prevStep }) => {
   
   const handleSubmit = (e) => {
     e.preventDefault();
-    
-    // Validate selections
-    if (!formData.musicStyle) {
-      setFormData({ ...formData, musicStyle: 'modern-pop' });
-    }
-    
-    if (!formData.package) {
-      setFormData({ ...formData, package: 'deluxe' });
-    }
-    
+    if (!formData.musicStyle) setFormData({ ...formData, musicStyle: 'modern-pop' });
+    if (!formData.package) setFormData({ ...formData, package: 'essential' });
     nextStep();
   };
   
@@ -312,7 +286,7 @@ const StepTwo = ({ formData, setFormData, nextStep, prevStep }) => {
         Select the package that best fits your needs and budget.
       </p>
       
-      {/* Style Explorer with improved UI */}
+      {/* Music Style Selection */}
       <div className="mb-8">
         <h4 className="text-xl font-semibold mb-4">Music Style</h4>
         
@@ -323,7 +297,7 @@ const StepTwo = ({ formData, setFormData, nextStep, prevStep }) => {
             aria-label="Music style categories"
             onKeyDown={handleCategoryKeyNav}
           >
-            {styleCategories.map((category, index) => (
+            {styleCategories.map((category) => (
               <button
                 key={category.id}
                 type="button"
@@ -343,12 +317,6 @@ const StepTwo = ({ formData, setFormData, nextStep, prevStep }) => {
               </button>
             ))}
           </div>
-          
-          {/* Animated indicator line */}
-          <div className="absolute bottom-0 h-0.5 bg-accent transition-all duration-300" style={{
-            left: document.getElementById(`tab-${activeCategory}`)?.offsetLeft || 0,
-            width: document.getElementById(`tab-${activeCategory}`)?.offsetWidth || 0
-          }}></div>
         </div>
         
         <div 
@@ -357,7 +325,7 @@ const StepTwo = ({ formData, setFormData, nextStep, prevStep }) => {
           aria-labelledby={`tab-${activeCategory}`}
           className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-6"
         >
-          {styleOptions.map((style, index) => (
+          {styleOptions.map((style) => (
             <StyleOption
               key={style.id}
               style={style.id}
@@ -366,7 +334,7 @@ const StepTwo = ({ formData, setFormData, nextStep, prevStep }) => {
               previewUrl={style.previewUrl}
               selected={formData.musicStyle === style.id}
               onClick={() => handleMusicStyleChange(style.id)}
-              tabIndex={activeCategory === style.id ? 0 : -1}
+              tabIndex={formData.musicStyle === style.id ? 0 : -1}
             />
           ))}
         </div>
@@ -378,7 +346,7 @@ const StepTwo = ({ formData, setFormData, nextStep, prevStep }) => {
         />
       </div>
       
-      {/* Package Selection with improved UI */}
+      {/* Package Selection */}
       <div className="mb-8">
         <h4 className="text-xl font-semibold mb-4">Package Level</h4>
         
@@ -387,7 +355,7 @@ const StepTwo = ({ formData, setFormData, nextStep, prevStep }) => {
           role="radiogroup"
           aria-label="Package selection"
         >
-          {packageOptions.map((pkg, index) => (
+          {packageOptions.map((pkg) => (
             <PackageOption
               key={pkg.type}
               type={pkg.type}
@@ -401,7 +369,7 @@ const StepTwo = ({ formData, setFormData, nextStep, prevStep }) => {
         </div>
       </div>
       
-      {/* Navigation Buttons */}
+      {/* Navigation */}
       <div className="flex justify-between">
         <button
           type="button"

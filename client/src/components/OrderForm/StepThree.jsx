@@ -56,44 +56,14 @@ const AddonOption = ({ type, name, price, description, selected, onChange, disab
 
 const StepThree = ({ formData, setFormData, nextStep, prevStep }) => {
   // Available add-ons with updated prices
-  const addonOptions = [
-    {
-      type: 'lyric-sheet',
-      name: 'Digital Lyric Sheet',
-      price: '14.99',
-      description: 'Professional lyric sheet with your song lyrics'
-    },
-    {
-      type: 'instrumental',
-      name: 'Instrumental Version',
-      price: '35',
-      description: 'Get your song without vocals - perfect for background music use'
-    },
-    {
-      type: 'expedited',
-      name: 'Expedited Delivery',
-      price: '29.99',
-      description: 'Get your song faster (typically 3-5 days)'
-    },
-    {
-      type: 'physical-cd',
-      name: 'Physical CD',
-      price: '34.99',
-      description: 'Professional CD in custom case with artwork'
-    },
-    {
-      type: 'physical-vinyl',
-      name: 'Vinyl Record',
-      price: '119.99',
-      description: 'Premium vinyl pressing with custom artwork (allow up to 6 weeks)'
-    },
-    {
-      type: 'streaming',
-      name: 'Streaming Release',
-      price: '34.99',
-      description: 'Release your song on Spotify, Apple Music & more'
-    }
-  ];
+const addonOptions = [
+  { type: 'lyric-sheet',   name: 'Digital Lyric Sheet',  price: '14.99', description: 'Professional lyric sheet with your song lyrics' },
+  { type: 'instrumental',  name: 'Instrumental Version', price: '35',    description: 'Get your song without vocals - perfect for background music use' },
+  { type: 'expedited',     name: 'Expedited Delivery',   price: '19.99', description: 'Get your song faster (typically 3–5 days)' },
+  { type: 'physical-cd',   name: 'Physical CD',          price: '24.99', description: 'Professional CD in custom case with artwork' },
+  { type: 'physical-vinyl',name: 'Vinyl Record',         price: '59.99', description: 'Placeholder (not currently sold)' },
+  { type: 'streaming',     name: 'Streaming Release',    price: '34.99', description: 'Release on Spotify, Apple Music & more' }
+];
   
   // Initialize addons if not already set
   useEffect(() => {
@@ -130,19 +100,14 @@ const StepThree = ({ formData, setFormData, nextStep, prevStep }) => {
   };
 
   // Function to check if an addon is included in the selected package
-  const isAddonIncludedInPackage = (addonType) => {
-    // Check if instrumental version is included in Signature or Masterpiece packages
-    if (addonType === 'instrumental' && (formData.package === 'deluxe' || formData.package === 'premium')) {
-      return true;
-    }
-    
-    // Check if lyric sheet is included in Masterpiece package
-    if (addonType === 'lyric-sheet' && formData.package === 'premium') {
-      return true;
-    }
-    
-    return false;
-  };
+  // Check if an addon is included in the selected package
+const isAddonIncludedInPackage = (addonType) => {
+  if (formData.package === 'signature' || formData.package === 'masterpiece') {
+    if (addonType === 'expedited' || addonType === 'instrumental') return true;
+  }
+  if (formData.package === 'masterpiece' && addonType === 'lyric-sheet') return true;
+  return false;
+};
 
   // State for showcase gallery option
   const [showInGallery, setShowInGallery] = useState(formData.showInGallery || false);
@@ -210,21 +175,19 @@ const StepThree = ({ formData, setFormData, nextStep, prevStep }) => {
           
           <div>
             <h4 className="font-semibold mb-2">Your Package Includes:</h4>
-            <p className="text-sm">
-              {formData.package === 'premium' ? (
-                <>
+              {formData.package === 'masterpiece' ? (
+                <p className="text-sm text-light-muted mb-4">
                   Your Masterpiece package already includes both an <span className="text-accent font-medium">Instrumental Version</span> and a <span className="text-accent font-medium">Digital Lyric Sheet</span>.
-                </>
-              ) : formData.package === 'deluxe' ? (
-                <>
+                </p>
+              ) : formData.package === 'signature' ? (
+                <p className="text-sm text-light-muted mb-4">
                   Your Signature package already includes an <span className="text-accent font-medium">Instrumental Version</span>.
-                </>
+                </p>
               ) : (
-                <>
-                  Your Essential package includes all the basics for a beautiful, personalized song. Add extras above to enhance your experience.
-                </>
+                <p className="text-sm text-light-muted mb-4">
+                  Add extra features to enhance your song experience.
+                </p>
               )}
-            </p>
           </div>
         </div>
       </div>

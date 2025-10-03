@@ -1,6 +1,6 @@
-// client/src/App.jsx
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import AffiliateTracker from './components/AffiliateTracker';
 import { AuthProvider } from './context/AuthContext';
 import { MusicPlayerProvider } from './components/GlobalMusicPlayer';
 import RequireAuth from './components/RequireAuth';
@@ -31,46 +31,8 @@ import UserProfile from './components/UserProfile';
 import Showcase from './components/Showcase';
 import NotFound from './components/NotFound';
 
-// Home page component
-const Home = () => {
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      if (window.scrollY > 50) {
-        setScrolled(true);
-      } else {
-        setScrolled(false);
-      }
-    };
-
-    window.addEventListener('scroll', handleScroll);
-
-    // Animate elements when they come into view
-    const animateOnScroll = () => {
-      const elements = document.querySelectorAll('.animate-on-scroll');
-      
-      elements.forEach(element => {
-        const elementTop = element.getBoundingClientRect().top;
-        const elementBottom = element.getBoundingClientRect().bottom;
-        
-        // If element is in viewport
-        if (elementTop < window.innerHeight - 100 && elementBottom > 0) {
-          element.classList.add('fade-in');
-        }
-      });
-    };
-    
-    // Initial call and scroll event
-    animateOnScroll();
-    window.addEventListener('scroll', animateOnScroll);
-
-    return () => {
-      window.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('scroll', animateOnScroll);
-    };
-  }, []);
-
+// Homepage component
+const HomePage = ({ scrolled }) => {
   return (
     <>
       <Header scrolled={scrolled} />
@@ -89,8 +51,7 @@ const Home = () => {
   );
 };
 
-// ShowcasePage component with header and footer
-const ShowcasePage = () => {
+const App = () => {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -103,62 +64,87 @@ const ShowcasePage = () => {
     };
 
     window.addEventListener('scroll', handleScroll);
+
+    // Animate elements when they come into view
+    const animateOnScroll = () => {
+      const elements = document.querySelectorAll('.animate-on-scroll');
+
+      elements.forEach(element => {
+        const elementTop = element.getBoundingClientRect().top;
+        const elementBottom = element.getBoundingClientRect().bottom;
+
+        // If element is in viewport
+        if (elementTop < window.innerHeight - 100 && elementBottom > 0) {
+          element.classList.add('fade-in');
+        }
+      });
+    };
+
+    // Initial call and scroll event
+    animateOnScroll();
+    window.addEventListener('scroll', animateOnScroll);
+
     return () => {
       window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('scroll', animateOnScroll);
     };
   }, []);
 
   return (
-    <>
-      <Header scrolled={scrolled} />
-      <Showcase />
-      <Footer />
-    </>
+    <AuthProvider>
+      <MusicPlayerProvider>
+        <Router>
+          <div className="App">
+            <AffiliateTracker />
+            
+            <Routes>
+              {/* Homepage */}
+              <Route path="/" element={<HomePage scrolled={scrolled} />} />
+              
+              {/* Auth routes */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
+              <Route path="/auth-success" element={<AuthSuccess />} />
+              
+              {/* Protected routes */}
+              <Route 
+                path="/dashboard" 
+                element={
+                  <RequireAuth>
+                    <Dashboard />
+                  </RequireAuth>
+                } 
+              />
+              <Route 
+                path="/admin/*" 
+                element={
+                  <RequireAdmin>
+                    <AdminDashboard />
+                  </RequireAdmin>
+                } 
+              />
+              <Route 
+                path="/profile" 
+                element={
+                  <RequireAuth>
+                    <UserProfile />
+                  </RequireAuth>
+                } 
+              />
+              
+              {/* Public routes */}
+              <Route path="/showcase" element={<Showcase />} />
+              
+              {/* 404 */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+            
+            <EmailPopup />
+          </div>
+        </Router>
+      </MusicPlayerProvider>
+    </AuthProvider>
   );
 };
-
-function App() {
-  const [showEmailPopup, setShowEmailPopup] = useState(true);
-
-  return (
-    <Router>
-      <AuthProvider>
-        <MusicPlayerProvider>
-          {showEmailPopup && <EmailPopup />}
-          <Routes>
-            {/* Public routes */}
-            <Route path="/" element={<Home />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
-            <Route path="/showcase" element={<ShowcasePage />} />
-            <Route path="/auth/success" element={<AuthSuccess />} />
-            
-            {/* Protected user routes */}
-            <Route path="/dashboard" element={
-              <RequireAuth>
-                <Dashboard />
-              </RequireAuth>
-            } />
-            <Route path="/profile" element={
-              <RequireAuth>
-                <UserProfile />
-              </RequireAuth>
-            } />
-            
-            {/* Protected admin routes */}
-            <Route path="/admin/*" element={
-              <RequireAdmin>
-                <AdminDashboard />
-              </RequireAdmin>
-            } />
-            
-            {/* 404 Not Found */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </MusicPlayerProvider>
-      </AuthProvider>
-    </Router>
-  );
-}
 
 export default App;

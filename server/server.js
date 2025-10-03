@@ -52,12 +52,38 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      connectSrc: ["'self'", "https://*.stripe.com", "https://*.paypal.com", process.env.CLIENT_URL || 'https://songsculptors.com'],
+      connectSrc: [
+        "'self'", 
+        "https://*.stripe.com", 
+        "https://*.paypal.com", 
+        process.env.CLIENT_URL || 'https://songsculptors.com'
+      ],
       frameSrc: ["'self'", "https://*.stripe.com", "https://*.paypal.com"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://*.stripe.com", "https://*.paypal.com"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https://*.stripe.com", "https://*.paypal.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"]
+      scriptSrc: [
+        "'self'", 
+        "'unsafe-inline'", 
+        "https://*.stripe.com", 
+        "https://*.paypal.com",
+        "https://js.stripe.com"
+      ],
+      styleSrc: [
+        "'self'", 
+        "'unsafe-inline'", 
+        "https://cdnjs.cloudflare.com",  // Font Awesome
+        "https://fonts.googleapis.com"   // Google Fonts
+      ],
+      imgSrc: [
+  "'self'", 
+  "data:", 
+  "https://*.stripe.com", 
+  "https://*.paypal.com",
+  "https://developers.google.com"
+],
+      fontSrc: [
+        "'self'", 
+        "https://fonts.gstatic.com",     // Google Fonts
+        "https://cdnjs.cloudflare.com"   // Font Awesome
+      ]
     }
   }
 }));
@@ -124,6 +150,10 @@ app.use(express.urlencoded({
   parameterLimit: 50000 
 }));
 
+// Cookie parser for affiliate tracking
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
+
 // Logger
 app.use(morgan('dev'));
 
@@ -143,17 +173,17 @@ try {
   testConnection()
     .then(connected => {
       if (!connected) {
-        console.error('⚠️ WARNING: Failed to connect to database. Server will continue but database operations will fail.');
+        console.error('WARNING: Failed to connect to database. Server will continue but database operations will fail.');
       } else {
-        console.log('✅ Database connection established');
+        console.log('Database connection established');
       }
     })
     .catch(err => {
-      console.error('⚠️ Database connection test failed:', err.message);
+      console.error('Database connection test failed:', err.message);
       // Don't exit - let the server continue
     });
 } catch (error) {
-  console.error('⚠️ Failed to import database config:', error.message);
+  console.error('Failed to import database config:', error.message);
   // Continue without database
 }
 
@@ -161,9 +191,9 @@ try {
 try {
   require('./config/passport')(passport);
   app.use(passport.initialize());
-  console.log('✅ Passport configured successfully');
+  console.log('Passport configured successfully');
 } catch (error) {
-  console.error('⚠️ Failed to configure passport:', error.message);
+  console.error('Failed to configure passport:', error.message);
 }
 
 // Upload directory
@@ -175,7 +205,7 @@ const clientBuildPath = path.join(__dirname, '../client/dist');
 
 // Check if client build exists and serve it
 if (fs.existsSync(clientBuildPath)) {
-  console.log('✅ Client build found, serving static files from:', clientBuildPath);
+  console.log('Client build found, serving static files from:', clientBuildPath);
   
   // Serve static assets with proper MIME types
   app.use(express.static(clientBuildPath, {
@@ -209,7 +239,7 @@ if (fs.existsSync(clientBuildPath)) {
     }
   }));
 } else {
-  console.warn('⚠️ Client build directory not found at:', clientBuildPath);
+  console.warn('Client build directory not found at:', clientBuildPath);
   console.warn('   Make sure to run "npm run build" in the client directory');
 }
 
@@ -224,10 +254,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Routes with error handling
-// Quick fix for server.js - disable problematic routes temporarily
-// Replace the loadRoutes function in your server.js file
-
+// Routes with error handling - FIXED VERSION
 const loadRoutes = () => {
   try {
     // Load working routes only
@@ -240,7 +267,9 @@ const loadRoutes = () => {
       { path: '/api/admin', module: './routes/admin', name: 'Admin' },
       { path: '/api/helpdesk', module: './routes/helpdesk', name: 'Helpdesk' },
       { path: '/api/payment', module: './routes/stripe', name: 'Stripe' },
-      { path: '/api/affiliate', module: './routes/affiliate', name: 'Affiliate' } // NEWLY ENABLED
+      { path: '/api/affiliate', module: './routes/affiliate', name: 'Affiliate' },
+      { path: '/api/checkout', module: './routes/checkout', name: 'Checkout' },
+      { path: '/api/webhooks', module: './routes/webhooks', name: 'Webhooks' }
     ];
 
     // Temporarily disabled routes (until dependencies are fixed)
@@ -253,9 +282,9 @@ const loadRoutes = () => {
       try {
         const router = require(module);
         app.use(path, router);
-        console.log(`✅ ${name} routes loaded`);
+        console.log(`${name} routes loaded`);
       } catch (error) {
-        console.error(`❌ Failed to load ${name} routes:`, error.message);
+        console.error(`Failed to load ${name} routes:`, error.message);
         // Create a fallback route that returns an error
         app.use(path, (req, res) => {
           res.status(503).json({
@@ -269,7 +298,7 @@ const loadRoutes = () => {
 
     // Create placeholder routes for disabled services
     disabledRoutes.forEach(({ path, name, reason }) => {
-      console.log(`⚠️ ${name} routes disabled: ${reason}`);
+      console.log(`${name} routes disabled: ${reason}`);
       app.use(path, (req, res) => {
         res.status(503).json({
           success: false,
@@ -392,14 +421,14 @@ let wss = null;
 try {
   const { initWebSocket } = require('./websocket');
   wss = initWebSocket(server);
-  console.log('✅ WebSocket server initialized');
+  console.log('WebSocket server initialized');
 } catch (error) {
-  console.error('⚠️ Failed to initialize WebSocket:', error.message);
+  console.error('Failed to initialize WebSocket:', error.message);
 }
 
 // Graceful shutdown handler
 const gracefulShutdown = () => {
-  console.log('\n🛑 Shutting down gracefully...');
+  console.log('\nShutting down gracefully...');
   
   server.close(() => {
     console.log('HTTP server closed');
@@ -443,15 +472,15 @@ process.on('unhandledRejection', (reason, promise) => {
 // Start Server using the HTTP server instance
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`========================================`);
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📡 API available at: https://songsculptors.com/api`);
-  console.log(`🔌 WebSocket: ${wss ? 'Enabled' : 'Disabled'}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🗄️  Database: ${dbPool ? 'Connected' : 'Disconnected'}`);
-  console.log(`🔐 JWT: ${process.env.JWT_SECRET ? 'Configured' : 'Using default (NOT SECURE)'}`);
-  console.log(`💳 Stripe: ${process.env.STRIPE_SECRET_KEY ? 'Configured' : 'Not configured'}`);
-  console.log(`💰 PayPal: ${process.env.PAYPAL_CLIENT_ID ? 'Configured' : 'Not configured'}`);
-  console.log(`🎨 Frontend: ${fs.existsSync(clientBuildPath) ? 'Serving from ' + clientBuildPath : 'Not available'}`);
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`API available at: https://songsculptors.com/api`);
+  console.log(`WebSocket: ${wss ? 'Enabled' : 'Disabled'}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Database: ${dbPool ? 'Connected' : 'Disconnected'}`);
+  console.log(`JWT: ${process.env.JWT_SECRET ? 'Configured' : 'Using default (NOT SECURE)'}`);
+  console.log(`Stripe: ${process.env.STRIPE_SECRET_KEY ? 'Configured' : 'Not configured'}`);
+  console.log(`PayPal: ${process.env.PAYPAL_CLIENT_ID ? 'Configured' : 'Not configured'}`);
+  console.log(`Frontend: ${fs.existsSync(clientBuildPath) ? 'Serving from ' + clientBuildPath : 'Not available'}`);
   console.log(`========================================`);
 });
 
