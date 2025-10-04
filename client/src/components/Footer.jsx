@@ -1,21 +1,23 @@
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { newsletterService } from '../services/api';
+import { usePreserveParams } from '../hooks/usePreserveParams';
 
 const Footer = () => {
   const currentYear = new Date().getFullYear();
+  const { getUrlWithParams } = usePreserveParams();
   const [email, setEmail] = useState('');
   const [subscribeStatus, setSubscribeStatus] = useState({ type: '', message: '' });
   const [loading, setLoading] = useState(false);
   
   const footerLinks = {
-    quickLinks: [
-      { text: 'Home', href: '#home' },
-      { text: 'Experience', href: '#experience' },
-      { text: 'Our Process', href: '#process' },
-      { text: 'Showcase', href: '/showcase' },
-      { text: 'Pricing', href: '#pricing' }
-    ],
+  quickLinks: [
+    { text: 'Home', href: '#home', isRoute: false },
+    { text: 'Experience', href: '#experience', isRoute: false },
+    { text: 'Our Process', href: '#process', isRoute: false },
+    { text: 'Showcase', href: '/showcase', isRoute: true }, // ✅ This is a route
+    { text: 'Pricing', href: '#pricing', isRoute: false }
+  ],
     policies: [
       { text: 'Privacy Policy', href: '#' },
       { text: 'Terms of Service', href: '#' },
@@ -88,7 +90,7 @@ const Footer = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
           {/* Company Info */}
           <div className="lg:col-span-1">
-            <Link to="/" className="font-secondary flex items-center mb-6">
+            <Link to={getUrlWithParams('/')} className="font-secondary flex items-center mb-6">
               <i className="fas fa-music text-accent mr-2"></i>
               <span className="text-2xl font-bold">SongSculptors</span>
             </Link>
@@ -117,18 +119,30 @@ const Footer = () => {
             </h4>
             <ul className="flex flex-col gap-3">
               {footerLinks.quickLinks.map((link, index) => (
-                <li key={index}>
-                  <a 
-                    href={link.href}
-                    className="text-muted transition-all duration-200 hover:text-accent hover:translate-x-1 flex items-center group"
-                  >
-                    <i className="fas fa-chevron-right text-xs mr-2 text-accent opacity-0 transition-all duration-200 group-hover:opacity-100"></i>
-                    <span className="transform transition-transform duration-200 hover:translate-x-1">
-                      {link.text}
-                    </span>
-                  </a>
-                </li>
-              ))}
+  <li key={index}>
+    {link.isRoute ? (
+      <Link
+        to={getUrlWithParams(link.href)}
+        className="text-muted transition-all duration-200 hover:text-accent hover:translate-x-1 flex items-center group"
+      >
+        <i className="fas fa-chevron-right text-xs mr-2 text-accent opacity-0 transition-all duration-200 group-hover:opacity-100"></i>
+        <span className="transform transition-transform duration-200 hover:translate-x-1">
+          {link.text}
+        </span>
+      </Link>
+    ) : (
+      <a 
+        href={link.href}
+        className="text-muted transition-all duration-200 hover:text-accent hover:translate-x-1 flex items-center group"
+      >
+        <i className="fas fa-chevron-right text-xs mr-2 text-accent opacity-0 transition-all duration-200 group-hover:opacity-100"></i>
+        <span className="transform transition-transform duration-200 hover:translate-x-1">
+          {link.text}
+        </span>
+      </a>
+    )}
+  </li>
+))}
             </ul>
           </div>
           

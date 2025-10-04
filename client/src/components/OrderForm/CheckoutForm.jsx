@@ -35,6 +35,17 @@ const CheckoutForm = ({ formData, promoCode = '', onSuccessfulPayment }) => {
 
     // ✅ ADD THIS NEW useEffect HERE (between state and handlers)
   useEffect(() => {
+    // Priority 1: Check URL for 'ref' parameter first
+    const urlParams = new URLSearchParams(window.location.search);
+    const refParam = urlParams.get('ref');
+    
+    if (refParam && !appliedPromoCode) {
+      console.log('Auto-applying affiliate code from URL ref parameter:', refParam);
+      setAppliedPromoCode(refParam);
+      return; // Exit early, don't check localStorage
+    }
+
+    // Priority 2: Fallback to localStorage if no URL ref parameter
     const storedTracking = localStorage.getItem('affiliate_tracking');
     
     if (storedTracking && !appliedPromoCode) {
@@ -53,7 +64,7 @@ const CheckoutForm = ({ formData, promoCode = '', onSuccessfulPayment }) => {
         console.error('Error reading affiliate tracking:', error);
       }
     }
-  }, []); // Run once on mount
+  }, []); // run once
 
   // Handle promo code applied
   const handlePromoApplied = (breakdown) => {

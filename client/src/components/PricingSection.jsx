@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { usePreserveParams } from '../hooks/usePreserveParams';
 
 const PricingCard = ({ featured, icon, title, price, features, buttonText, type, onClick }) => {
   const [isHovered, setIsHovered] = useState(false);
@@ -55,6 +56,7 @@ const PricingCard = ({ featured, icon, title, price, features, buttonText, type,
 const PricingSection = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { getUrlWithParams } = usePreserveParams();
 
   // Selected package (used for initial state / consistency with URL & storage)
   const [selectedPackage, setSelectedPackage] = useState(null);
@@ -157,7 +159,7 @@ const PricingSection = () => {
   ];
 
   // When a plan is selected
-  const handleSelectPackage = (packageType) => {
+const handleSelectPackage = (packageType) => {
     setSelectedPackage(packageType);
 
     // Persist to localStorage
@@ -170,14 +172,15 @@ const PricingSection = () => {
       } else {
         localStorage.setItem('songFormData', JSON.stringify({ package: packageType }));
       }
-    } catch {
-      // ignore storage errors
+    } catch (err) {
+      console.error('Error saving to localStorage:', err);
     }
 
-    // Navigate to order form (query after hash is how your app currently routes)
-    navigate(`/#order-form?package=${packageType}`);
+    // ✅ UPDATED: Navigate with preserved ref parameter
+    const orderFormUrl = getUrlWithParams('/#order-form', { package: packageType });
+    navigate(orderFormUrl);
 
-    // Smooth scroll
+    // ✅ KEEP: Smooth scroll to order form
     setTimeout(() => {
       const el = document.getElementById('order-form');
       if (el) el.scrollIntoView({ behavior: 'smooth' });

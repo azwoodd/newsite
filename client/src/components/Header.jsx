@@ -1,6 +1,10 @@
+// client/src/components/Header.jsx
+// Updated to preserve 'ref' parameter across all navigation
+
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { usePreserveParams } from '../hooks/usePreserveParams';
 import { smoothScrollTo } from '../utils/scrollUtils';
 import Logo from './Logo';
 
@@ -9,6 +13,7 @@ const Header = ({ scrolled }) => {
   const { currentUser } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { getUrlWithParams } = usePreserveParams(); // ✅ NEW: Preserve ref parameter
 
   // Close menu when location changes
   useEffect(() => {
@@ -47,8 +52,9 @@ const Header = ({ scrolled }) => {
       
       // If we're not on the home page and this is a home page section
       if (location.pathname !== '/' && href.startsWith('/#')) {
-        // Navigate to home page with the anchor
-        navigate('/', { replace: true });
+        // Navigate to home page with the anchor (preserving ref)
+        const preservedUrl = getUrlWithParams('/', {}); // Get URL with ref
+        navigate(preservedUrl, { replace: true });
         
         // Give time for the navigation to complete before scrolling
         setTimeout(() => {
@@ -61,9 +67,10 @@ const Header = ({ scrolled }) => {
       // Otherwise, we're already on the right page, just scroll
       smoothScrollTo(targetId, 80);
       
-      // Update URL without full page reload
+      // Update URL without full page reload (preserve ref)
       if (history.pushState) {
-        history.pushState(null, null, href);
+        const preservedUrl = getUrlWithParams(href, {});
+        history.pushState(null, null, preservedUrl);
       }
     } else {
       // Regular navigation, just close the menu
@@ -92,7 +99,7 @@ const Header = ({ scrolled }) => {
             {navLinks.map((link, index) => (
               <li key={index} className="lg:ml-8 w-full px-6 lg:px-0 lg:w-auto">
                 <Link
-                  to={link.href}
+                  to={getUrlWithParams(link.href)} // ✅ UPDATED: Preserve ref parameter
                   className="font-medium relative py-3 px-4 lg:px-0 lg:py-2 flex w-full lg:w-auto justify-center hover:text-accent transition-colors duration-200 
                     after:content-[''] after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 
                     after:bg-accent after:transition-width after:duration-300 hover:after:w-full"
@@ -107,7 +114,7 @@ const Header = ({ scrolled }) => {
           <div className="flex items-center z-50">
             {currentUser ? (
               <Link
-                to="/dashboard"
+                to={getUrlWithParams('/dashboard')} // ✅ UPDATED: Preserve ref parameter
                 className="px-4 py-2 rounded-full bg-transparent border-2 border-accent text-white hover:bg-accent/10 transition-all duration-200 text-sm font-medium hidden sm:flex items-center"
               >
                 <i className="fas fa-user mr-2"></i>
@@ -116,14 +123,14 @@ const Header = ({ scrolled }) => {
             ) : (
               <div className="hidden sm:flex items-center gap-3">
                 <Link
-                  to="/login"
+                  to={getUrlWithParams('/login')} // ✅ UPDATED: Preserve ref parameter
                   className="px-4 py-1.5 rounded-full bg-transparent border-2 border-accent text-white hover:bg-accent/10 transition-all duration-200 text-sm font-medium flex items-center"
                 >
                   <i className="fas fa-sign-in-alt mr-2"></i>
                   Sign In
                 </Link>
                 <Link
-                  to="/signup"
+                  to={getUrlWithParams('/signup')} // ✅ UPDATED: Preserve ref parameter
                   className="px-4 py-1.5 rounded-full bg-accent border-2 border-accent text-dark hover:bg-accent-alt transition-all duration-200 text-sm font-medium flex items-center"
                 >
                   <i className="fas fa-user-plus mr-2"></i>
@@ -145,7 +152,7 @@ const Header = ({ scrolled }) => {
             {!currentUser && menuOpen && (
               <div className="fixed bottom-32 left-0 w-full flex justify-center gap-4 lg:hidden z-50">
                 <Link
-                  to="/login"
+                  to={getUrlWithParams('/login')} // ✅ UPDATED: Preserve ref parameter
                   className="px-4 py-2 rounded-full bg-transparent border-2 border-accent text-white hover:bg-accent/10 transition-all duration-200 text-xs font-medium flex items-center"
                   onClick={closeMenu}
                 >
@@ -153,7 +160,7 @@ const Header = ({ scrolled }) => {
                   Sign In
                 </Link>
                 <Link
-                  to="/signup"
+                  to={getUrlWithParams('/signup')} // ✅ UPDATED: Preserve ref parameter
                   className="px-4 py-2 rounded-full bg-accent border-2 border-accent text-dark hover:bg-accent-alt transition-all duration-200 text-xs font-medium flex items-center"
                   onClick={closeMenu}
                 >
@@ -167,7 +174,7 @@ const Header = ({ scrolled }) => {
             {currentUser && menuOpen && (
               <div className="fixed bottom-32 left-0 w-full flex justify-center lg:hidden z-50">
                 <Link
-                  to="/dashboard"
+                  to={getUrlWithParams('/dashboard')} // ✅ UPDATED: Preserve ref parameter
                   className="px-6 py-3 rounded-full bg-transparent border-2 border-accent text-white hover:bg-accent/10 transition-all duration-200 text-sm font-medium flex items-center"
                   onClick={closeMenu}
                 >
