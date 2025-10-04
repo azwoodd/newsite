@@ -31,13 +31,13 @@ exports.getShowcaseSongs = async (req, res) => {
       params.push(category);
     }
 
-    sql += `
-      ORDER BY featured DESC, view_count DESC, created_at DESC
-      LIMIT ?
-    `;
-    params.push(limit);
+sql += `
+  ORDER BY featured DESC, view_count DESC, created_at DESC
+  LIMIT ${limit}
+`;
+// Don't push limit to params - use template literal instead
 
-    const rows = await query(sql, params);
+const rows = await query(sql, params);
 
     const items = rows.map(r => ({
       ...r,

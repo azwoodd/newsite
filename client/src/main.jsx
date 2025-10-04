@@ -9,19 +9,18 @@ import './index.css';
 // recreating the Stripe object on every render.
 // Use the key directly from the environment variable
 // This is your test publishable API key.
+// Modern Stripe initialization - pass ONLY the key to loadStripe
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
 
-// Log the Stripe key for debugging (redacted for security)
 console.log('Stripe key loaded:', import.meta.env.VITE_STRIPE_PUBLIC_KEY ? 
   `${import.meta.env.VITE_STRIPE_PUBLIC_KEY.substring(0, 7)}...` : 'NOT FOUND');
 
-// The options object configures how Elements behaves
+// Options go on Elements component, NOT loadStripe
 const options = {
-  // Stripe will automatically check for saved payment methods for returning customers
   appearance: {
     theme: 'night',
     variables: {
-      colorPrimary: '#C4A064', // Match your accent color
+      colorPrimary: '#C4A064',
       colorBackground: '#1A1A1A',
       colorText: '#ffffff',
       colorDanger: '#ff3e6c',
@@ -30,9 +29,7 @@ const options = {
       borderRadius: '8px',
     },
   },
-  // Update locale and currency
-  locale: 'en-GB',  // British English
-  currency: 'gbp',  // GBP (£)
+  // Note: locale and currency are set per PaymentIntent, not here
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(

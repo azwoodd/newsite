@@ -41,8 +41,7 @@ router.get(
     );
     
     // Redirect to frontend with token
-const redirectUrl = `${process.env.CLIENT_URL || 'https://songsculptors.com'}/auth-success?token=${token}`;
-    
+const redirectUrl = `${process.env.CLIENT_URL || 'https://songsculptors.com'}/auth/success?token=${token}`;    
     res.redirect(redirectUrl);
   }
 );
