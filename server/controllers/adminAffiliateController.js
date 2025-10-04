@@ -61,90 +61,92 @@ const getAllAffiliates = async (req, res) => {
     const totalAffiliates = countResult[0].total;
     
     // Get affiliates with comprehensive data
-    const [affiliates] = await pool.query(`
-      SELECT 
-        a.*,
-        u.name,
-        u.email,
-        pc.code as affiliate_code,
-        
-        -- Commission stats (with error handling)
-        COALESCE(commission_stats.total_commissions, 0) as total_commissions,
-        COALESCE(commission_stats.pending_commissions, 0) as pending_commissions,
-        COALESCE(commission_stats.paid_commissions, 0) as paid_commissions,
-        COALESCE(commission_stats.total_earnings, 0) as total_earnings,
-        COALESCE(commission_stats.pending_earnings, 0) as pending_earnings,
-        
-        -- Referral stats (with error handling)
-        COALESCE(referral_stats.total_clicks, 0) as total_clicks,
-        COALESCE(referral_stats.total_signups, 0) as total_signups,
-        COALESCE(referral_stats.total_conversions, 0) as total_conversions,
-        COALESCE(referral_stats.conversion_rate, 0) as conversion_rate
-        
-      FROM affiliates a
-      JOIN users u ON a.user_id = u.id
-      LEFT JOIN promo_codes pc ON pc.affiliate_id = a.id AND pc.type = 'affiliate'
-      
-      -- Left join commission stats (optional)
-      LEFT JOIN (
-        SELECT 
-          affiliate_id,
-          COUNT(*) as total_commissions,
-          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_commissions,
-          COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_commissions,
-          SUM(amount) as total_earnings,
-          SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) as pending_earnings
-        FROM commissions 
-        GROUP BY affiliate_id
-      ) commission_stats ON commission_stats.affiliate_id = a.id
-      
-      -- Left join referral stats (optional)
-      LEFT JOIN (
-        SELECT 
-          pc_inner.affiliate_id,
-          COUNT(DISTINCT CASE WHEN re.event_type = 'click' THEN re.id END) as total_clicks,
-          COUNT(DISTINCT CASE WHEN re.event_type = 'signup' THEN re.id END) as total_signups,
-          COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) as total_conversions,
-          CASE 
-            WHEN COUNT(DISTINCT CASE WHEN re.event_type = 'click' THEN re.id END) > 0 THEN
-              ROUND((COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) * 100.0 / 
-                     COUNT(DISTINCT CASE WHEN re.event_type = 'click' THEN re.id END)), 2)
-            ELSE 0 
-          END as conversion_rate
-        FROM promo_codes pc_inner
-        LEFT JOIN referral_events re ON re.code_id = pc_inner.id
-        WHERE pc_inner.type = 'affiliate'
-        GROUP BY pc_inner.affiliate_id
-      ) referral_stats ON referral_stats.affiliate_id = a.id
-      
-      ${whereClause}
-      ORDER BY ${validSortBy === 'name' ? 'u.name' : validSortBy === 'email' ? 'u.email' : `a.${validSortBy}`} ${validSortOrder}
-      LIMIT ? OFFSET ?
-    `, [...queryParams, parseInt(limit), offset]);
-
-    // ✅ FIXED: Flatten response - remove data wrapper
-    res.status(200).json({
-      success: true,
-      affiliates,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: totalAffiliates,
-        totalPages: Math.ceil(totalAffiliates / parseInt(limit)),
-        hasNext: (parseInt(page) * parseInt(limit)) < totalAffiliates,
-        hasPrev: parseInt(page) > 1
-      }
-    });
+// Get affiliates with comprehensive data
+const [affiliates] = await pool.query(`
+  SELECT 
+    a.*,
+    u.name,
+    u.email,
+    pc.code as affiliate_code,
     
-  } catch (error) {
-    console.error('Error getting affiliates:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get affiliates',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    -- Commission stats (with error handling)
+    COALESCE(commission_stats.total_commissions, 0) as total_commissions,
+    COALESCE(commission_stats.pending_commissions, 0) as pending_commissions,
+    COALESCE(commission_stats.paid_commissions, 0) as paid_commissions,
+    COALESCE(commission_stats.total_earnings, 0) as total_earnings,
+    COALESCE(commission_stats.pending_earnings, 0) as pending_earnings,
+    
+    -- Referral stats (with error handling)
+    COALESCE(referral_stats.total_clicks, 0) as total_clicks,
+    COALESCE(referral_stats.total_signups, 0) as total_signups,
+    COALESCE(referral_stats.total_conversions, 0) as total_conversions,
+    COALESCE(referral_stats.conversion_rate, 0) as conversion_rate
+    
+  FROM affiliates a
+  JOIN users u ON a.user_id = u.id
+  LEFT JOIN promo_codes pc ON pc.affiliate_id = a.id AND pc.type = 'affiliate'
+  
+  -- Left join commission stats (optional)
+  LEFT JOIN (
+    SELECT 
+      affiliate_id,
+      COUNT(*) as total_commissions,
+      COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_commissions,
+      COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_commissions,
+      SUM(amount) as total_earnings,
+      SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) as pending_earnings
+    FROM commissions 
+    GROUP BY affiliate_id
+  ) commission_stats ON commission_stats.affiliate_id = a.id
+  
+  -- Left join referral stats (optional)
+  LEFT JOIN (
+    SELECT 
+      pc_inner.affiliate_id,
+      COUNT(DISTINCT CASE WHEN re.event_type = 'click' THEN re.id END) as total_clicks,
+      COUNT(DISTINCT CASE WHEN re.event_type = 'signup' THEN re.id END) as total_signups,
+      COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) as total_conversions,
+      CASE 
+        WHEN COUNT(DISTINCT CASE WHEN re.event_type = 'click' THEN re.id END) > 0 THEN
+          ROUND((COUNT(DISTINCT CASE WHEN re.event_type = 'purchase' THEN re.id END) * 100.0 / 
+                 COUNT(DISTINCT CASE WHEN re.event_type = 'click' THEN re.id END)), 2)
+        ELSE 0 
+      END as conversion_rate
+    FROM promo_codes pc_inner
+    LEFT JOIN referral_events re ON re.code_id = pc_inner.id
+    WHERE pc_inner.type = 'affiliate'
+    GROUP BY pc_inner.affiliate_id
+  ) referral_stats ON referral_stats.affiliate_id = a.id
+  
+  ${whereClause}
+  ORDER BY ${validSortBy === 'name' ? 'u.name' : validSortBy === 'email' ? 'u.email' : `a.${validSortBy}`} ${validSortOrder}
+  LIMIT ? OFFSET ?
+`, [...queryParams, parseInt(limit), offset]);
+
+// ✅ NEW: Convert string decimals to numbers
+const parsedAffiliates = affiliates.map(affiliate => ({
+  ...affiliate,
+  balance: parseFloat(affiliate.balance) || 0,
+  total_paid: parseFloat(affiliate.total_paid) || 0,
+  commission_rate: parseFloat(affiliate.commission_rate) || 0,
+  payout_threshold: parseFloat(affiliate.payout_threshold) || 50,
+  total_earnings: parseFloat(affiliate.total_earnings) || 0,
+  pending_earnings: parseFloat(affiliate.pending_earnings) || 0
+}));
+
+// ✅ FIXED: Flatten response - remove data wrapper
+res.status(200).json({
+  success: true,
+  affiliates: parsedAffiliates,
+  pagination: {
+    page: parseInt(page),
+    limit: parseInt(limit),
+    total: totalAffiliates,
+    totalPages: Math.ceil(totalAffiliates / parseInt(limit)),
+    hasNext: (parseInt(page) * parseInt(limit)) < totalAffiliates,
+    hasPrev: parseInt(page) > 1
   }
-};
+});
 
 // Approve affiliate application
 const approveAffiliate = async (req, res) => {
