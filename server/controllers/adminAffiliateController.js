@@ -122,7 +122,9 @@ const getAllAffiliates = async (req, res) => {
       LIMIT ? OFFSET ?
     `, [...queryParams, parseInt(limit), offset]);
 
-    const responseData = {
+    // ✅ FIXED: Flatten response - remove data wrapper
+    res.status(200).json({
+      success: true,
       affiliates,
       pagination: {
         page: parseInt(page),
@@ -132,11 +134,6 @@ const getAllAffiliates = async (req, res) => {
         hasNext: (parseInt(page) * parseInt(limit)) < totalAffiliates,
         hasPrev: parseInt(page) > 1
       }
-    };
-
-    res.status(200).json({
-      success: true,
-      data: responseData
     });
     
   } catch (error) {
