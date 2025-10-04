@@ -275,7 +275,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   }
   break;
 }
-      }
+      
 
       case 'payment_intent.payment_failed': {
         const failedPayment = event.data.object;
