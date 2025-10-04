@@ -581,7 +581,7 @@ const calculateSubtotal = (formData) => {
   onPromoApplied={handlePromoApplied}
   onPromoRemoved={handlePromoRemoved}
   disabled={isProcessing}
-  initialCode={appliedPromoCode}  {/* ✅ NEW: Pass the code to auto-fill */}
+  initialCode={appliedPromoCode}
 />
       </div>
 
