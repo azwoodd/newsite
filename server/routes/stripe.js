@@ -200,35 +200,81 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
     switch (event.type) {
       case 'payment_intent.succeeded': {
-        const paymentIntent = event.data.object;
-        console.log(`💰 PaymentIntent succeeded: ${paymentIntent.id}`);
-        try {
-          const { pool } = require('../config/db');
-          const orderId = paymentIntent.metadata?.orderId;
-          if (orderId) {
-            await pool.query(
-              `UPDATE orders 
-                 SET payment_status='paid', payment_id=?, payment_details=?, updated_at=NOW()
-               WHERE id=?`,
-              [
-                paymentIntent.id,
-                JSON.stringify({
-                  provider: 'stripe',
-                  amount: paymentIntent.amount,
-                  currency: paymentIntent.currency,
-                  status: paymentIntent.status
-                }),
-                orderId
-              ]
+  const paymentIntent = event.data.object;
+  console.log(`💰 PaymentIntent succeeded: ${paymentIntent.id}`);
+  try {
+    const { pool } = require('../config/db');
+    const affiliateService = require('../services/affiliateService');
+    
+    const orderId = paymentIntent.metadata?.orderId;
+    if (orderId) {
+      // Update order status
+      await pool.query(
+        `UPDATE orders 
+           SET payment_status='paid', payment_id=?, payment_details=?, updated_at=NOW()
+         WHERE id=?`,
+        [
+          paymentIntent.id,
+          JSON.stringify({
+            provider: 'stripe',
+            amount: paymentIntent.amount,
+            currency: paymentIntent.currency,
+            status: paymentIntent.status
+          }),
+          orderId
+        ]
+      );
+      console.log(`✅ Order ${orderId} status updated to paid`);
+      
+      // ✅ NEW: Track affiliate purchase and create commission
+      try {
+        // Get order details for commission calculation
+        const [orderData] = await pool.query(
+          'SELECT user_id, total_price, promo_discount_amount, referring_affiliate_id FROM orders WHERE id = ?',
+          [orderId]
+        );
+        
+        if (orderData.length > 0) {
+          const order = orderData[0];
+          
+          // Only track purchase if there's an affiliate ID
+          if (order.referring_affiliate_id) {
+            const mockReq = { 
+              ip: 'webhook', 
+              session: { id: 'webhook' },
+              cookies: {},
+              get: () => 'Stripe-Webhook'
+            };
+            
+            const result = await affiliateService.trackPurchase(
+              orderId,
+              order.user_id,
+              order.total_price,
+              order.promo_discount_amount || 0,
+              mockReq
             );
-            console.log(`✅ Order ${orderId} status updated to paid`);
+            
+            if (result.success) {
+              console.log(`✅ Affiliate commission £${result.commissionAmount} created for order ${orderId}`);
+            } else {
+              console.warn(`⚠️ Commission not created: ${result.error}`);
+            }
           } else {
-            console.warn('⚠️ No order ID found in payment intent metadata');
+            console.log(`ℹ️ No affiliate attribution for order ${orderId}`);
           }
-        } catch (dbError) {
-          console.error('❌ Error updating order status:', dbError);
         }
-        break;
+      } catch (affiliateError) {
+        console.error('❌ Error tracking affiliate purchase:', affiliateError);
+        // Don't fail the webhook if affiliate tracking fails
+      }
+    } else {
+      console.warn('⚠️ No order ID found in payment intent metadata');
+    }
+  } catch (dbError) {
+    console.error('❌ Error updating order status:', dbError);
+  }
+  break;
+}
       }
 
       case 'payment_intent.payment_failed': {

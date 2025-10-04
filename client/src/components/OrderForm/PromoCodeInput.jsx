@@ -2,12 +2,18 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
 
-const PromoCodeInput = ({ orderValue, onPromoApplied, onPromoRemoved, disabled = false }) => {
-  const [promoCode, setPromoCode] = useState('');
+const PromoCodeInput = ({ orderValue, onPromoApplied, onPromoRemoved, disabled = false, initialCode = '' }) => {  const [promoCode, setPromoCode] = useState('');
   const [isValidating, setIsValidating] = useState(false);
   const [validationMessage, setValidationMessage] = useState('');
   const [appliedPromo, setAppliedPromo] = useState(null);
   const [validationTimeout, setValidationTimeout] = useState(null);
+
+  // ✅ NEW: Auto-fill from initialCode prop
+useEffect(() => {
+  if (initialCode && !promoCode) {
+    setPromoCode(initialCode);
+  }
+}, [initialCode]);
 
   // Debounced validation
   useEffect(() => {

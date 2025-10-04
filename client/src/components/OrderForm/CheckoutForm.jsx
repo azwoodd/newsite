@@ -33,6 +33,28 @@ const CheckoutForm = ({ formData, promoCode = '', onSuccessfulPayment }) => {
   const [discountAmount, setDiscountAmount] = useState(0);
   const [appliedPromoCode, setAppliedPromoCode] = useState('');
 
+    // ✅ ADD THIS NEW useEffect HERE (between state and handlers)
+  useEffect(() => {
+    const storedTracking = localStorage.getItem('affiliate_tracking');
+    
+    if (storedTracking && !appliedPromoCode) {
+      try {
+        const trackingData = JSON.parse(storedTracking);
+        
+        // Check if tracking is still valid (within 30 days)
+        const trackingDate = new Date(trackingData.timestamp);
+        const daysSinceTracking = (new Date() - trackingDate) / (1000 * 60 * 60 * 24);
+        
+        if (daysSinceTracking <= 30 && trackingData.code) {
+          console.log('Auto-applying affiliate code from localStorage:', trackingData.code);
+          setAppliedPromoCode(trackingData.code);
+        }
+      } catch (error) {
+        console.error('Error reading affiliate tracking:', error);
+      }
+    }
+  }, []); // Run once on mount
+
   // Handle promo code applied
   const handlePromoApplied = (breakdown) => {
     console.log('Promo code applied:', breakdown);
@@ -554,12 +576,13 @@ const calculateSubtotal = (formData) => {
       {/* Promo Code Input */}
       <div className="mb-6">
         <h3 className="text-lg font-semibold mb-3">Promo Code</h3>
-        <PromoCodeInput 
-          orderValue={calculateSubtotal(formData)}
-          onPromoApplied={handlePromoApplied}
-          onPromoRemoved={handlePromoRemoved}
-          disabled={isProcessing}
-        />
+        <PromoCodeInput
+  orderValue={calculateSubtotal(formData)}
+  onPromoApplied={handlePromoApplied}
+  onPromoRemoved={handlePromoRemoved}
+  disabled={isProcessing}
+  initialCode={appliedPromoCode}  {/* ✅ NEW: Pass the code to auto-fill */}
+/>
       </div>
 
       {/* Show discount confirmation if applied */}
