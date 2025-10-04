@@ -4,8 +4,8 @@ const crypto = require('crypto');
 
 // Constants
 const DEFAULT_COMMISSION_RATE = 10.00;
-const MIN_PAYOUT_THRESHOLD = 50.00;
-const COMMISSION_HOLDING_DAYS = 14;
+const MIN_PAYOUT_THRESHOLD = 10.00;
+const COMMISSION_HOLDING_DAYS = 0;
 const REAPPLICATION_COOLDOWN_DAYS = 30;
 const CODE_REGENERATION_COOLDOWN_HOURS = 24;
 const AFFILIATE_COOKIE_DAYS = 30;
@@ -275,27 +275,27 @@ const getAffiliateDashboard = async (req, res) => {
 
     try {
       const [statsRows] = await pool.query(`
-        SELECT 
-          COUNT(*) as total_commissions,
-          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_commissions,
-          COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_commissions,
-          SUM(amount) as total_earnings,
-          SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) as pending_earnings,
-          SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) as paid_earnings
-        FROM commissions 
-        WHERE affiliate_id = ?
-      `, [affiliate.id]);
+  SELECT 
+    COUNT(*) as total_commissions,
+    COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_commissions,
+    COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_commissions,
+    SUM(amount) as total_earnings,
+    SUM(CASE WHEN status = 'approved' THEN amount ELSE 0 END) as available_balance,
+    SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) as paid_earnings
+  FROM commissions 
+  WHERE affiliate_id = ?
+`, [affiliate.id]);
 
       if (statsRows.length > 0) {
-        commissionStats = {
-          total_commissions: statsRows[0].total_commissions || 0,
-          pending_commissions: statsRows[0].pending_commissions || 0,
-          paid_commissions: statsRows[0].paid_commissions || 0,
-          total_earnings: parseFloat(statsRows[0].total_earnings) || 0,
-          pending_earnings: parseFloat(statsRows[0].pending_earnings) || 0,
-          paid_earnings: parseFloat(statsRows[0].paid_earnings) || 0
-        };
-      }
+  commissionStats = {
+    total_commissions: statsRows[0].total_commissions || 0,
+    approved_commissions: statsRows[0].approved_commissions || 0,
+    paid_commissions: statsRows[0].paid_commissions || 0,
+    total_earnings: parseFloat(statsRows[0].total_earnings) || 0,
+    available_balance: parseFloat(statsRows[0].available_balance) || 0,
+    paid_earnings: parseFloat(statsRows[0].paid_earnings) || 0
+  };
+}
     } catch (e) {
       console.log('Commission stats not available:', e.message);
     }
@@ -366,7 +366,7 @@ res.status(200).json({
       user_id: affiliate.user_id,
       status: affiliate.status,
       commission_rate: parseFloat(affiliate.commission_rate) || 0,
-      balance: parseFloat(affiliate.balance) || 0,
+      balance: parseFloat(affiliate.balance) || 0,  // This is the AVAILABLE balance
       total_paid: parseFloat(affiliate.total_paid) || 0,
       affiliate_code: affiliate.affiliate_code,
       payout_threshold: parseFloat(affiliate.payout_threshold) || 50,
@@ -381,10 +381,10 @@ res.status(200).json({
       can_request_payout: canRequestPayout,
       // Parse all numeric values
       total_commissions: parseInt(commissionStats.total_commissions) || 0,
-      pending_commissions: parseInt(commissionStats.pending_commissions) || 0,
+      approved_commissions: parseInt(commissionStats.approved_commissions) || 0,
       paid_commissions: parseInt(commissionStats.paid_commissions) || 0,
       total_earnings: parseFloat(commissionStats.total_earnings) || 0,
-      pending_earnings: parseFloat(commissionStats.pending_earnings) || 0,
+      available_balance: parseFloat(commissionStats.available_balance) || 0,
       paid_earnings: parseFloat(commissionStats.paid_earnings) || 0
     },
     recent_commissions: recentCommissions,
@@ -564,18 +564,18 @@ const requestPayout = async (req, res) => {
 
     // Get eligible commissions
     const eligibleDate = new Date();
-    eligibleDate.setDate(eligibleDate.getDate() - COMMISSION_HOLDING_DAYS);
-    
-    let eligibleCommissions = [];
-    try {
-      const [commissions] = await connection.query(`
-        SELECT id, amount 
-        FROM commissions 
-        WHERE affiliate_id = ? 
-          AND status = 'pending' 
-          AND created_at <= ?
-        ORDER BY created_at ASC
-      `, [affiliate.id, eligibleDate]);
+eligibleDate.setDate(eligibleDate.getDate() - COMMISSION_HOLDING_DAYS);
+
+let eligibleCommissions = [];
+try {
+  const [commissions] = await connection.query(`
+    SELECT id, amount 
+    FROM commissions 
+    WHERE affiliate_id = ? 
+      AND status = 'approved'   // ✅ FIXED - commissions that are earned but not paid
+      AND created_at <= ?
+    ORDER BY created_at ASC
+  `, [affiliate.id, eligibleDate]);
 
       eligibleCommissions = commissions;
     } catch (e) {

@@ -26,7 +26,7 @@ class DiscountService {
           min_order_value, max_uses, current_uses, max_uses_per_user,
           starts_at, expires_at, is_active, affiliate_id
         FROM promo_codes 
-        WHERE code = ? AND type = 'discount'
+        WHERE code = ? AND type IN ('discount', 'affiliate')
       `, [code.toUpperCase()]);
 
       if (codeRows.length === 0) {

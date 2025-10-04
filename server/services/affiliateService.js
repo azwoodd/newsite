@@ -244,23 +244,33 @@ class AffiliateService {
         ]);
 
         // Create commission record (idempotent)
-        await connection.query(`
-          INSERT INTO commissions 
-          (affiliate_id, order_id, code_id, amount, rate, order_total, status)
-          VALUES (?, ?, ?, ?, ?, ?, 'pending')
-          ON DUPLICATE KEY UPDATE
-            amount = VALUES(amount),
-            rate = VALUES(rate),
-            order_total = VALUES(order_total),
-            updated_at = CURRENT_TIMESTAMP
-        `, [
-          attribution.affiliateId,
-          orderId,
-          attribution.codeId,
-          commissionAmount,
-          commissionRate,
-          orderTotal
-        ]);
+await connection.query(`
+  INSERT INTO commissions 
+  (affiliate_id, order_id, code_id, amount, rate, order_total, status)
+  VALUES (?, ?, ?, ?, ?, ?, 'approved')
+  ON DUPLICATE KEY UPDATE
+    amount = VALUES(amount),
+    rate = VALUES(rate),
+    order_total = VALUES(order_total),
+    status = 'approved',
+    updated_at = CURRENT_TIMESTAMP
+`, [
+  attribution.affiliateId,
+  orderId,
+  attribution.codeId,
+  commissionAmount,
+  commissionRate,
+  orderTotal
+]);
+
+// ✅ NEW: Update affiliate balance
+await connection.query(`
+  UPDATE affiliates 
+  SET balance = balance + ?
+  WHERE id = ?
+`, [commissionAmount, attribution.affiliateId]);
+
+console.log(`✅ Commission £${commissionAmount} added to affiliate ${attribution.affiliateId} balance`);
 
         await connection.commit();
 
