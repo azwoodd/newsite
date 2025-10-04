@@ -47,7 +47,7 @@ const rows = await query(sql, params);
       isPublic: toBool(r.is_public),
     }));
 
-    return res.status(200).json({ success: true, items });
+    return res.status(200).json({ success: true, showcaseItems: items });
   } catch (err) {
     console.error('Get showcase songs error:', err);
     return res.status(500).json({

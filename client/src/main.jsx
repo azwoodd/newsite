@@ -10,7 +10,10 @@ import './index.css';
 // Use the key directly from the environment variable
 // This is your test publishable API key.
 // Modern Stripe initialization - pass ONLY the key to loadStripe
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+const stripePromise = loadStripe(
+  import.meta.env.VITE_STRIPE_PUBLIC_KEY || 
+  import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
+);
 
 console.log('Stripe key loaded:', import.meta.env.VITE_STRIPE_PUBLIC_KEY ? 
   `${import.meta.env.VITE_STRIPE_PUBLIC_KEY.substring(0, 7)}...` : 'NOT FOUND');
