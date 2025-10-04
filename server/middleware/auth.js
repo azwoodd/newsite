@@ -12,7 +12,6 @@ const getAffiliateInfo = async (userId) => {
         a.commission_rate,
         a.balance,
         a.total_paid,
-        a.tour_completed,
         pc.code as affiliate_code
       FROM affiliates a
       LEFT JOIN promo_codes pc ON pc.affiliate_id = a.id AND pc.type = 'affiliate' AND pc.is_active = TRUE
@@ -28,8 +27,7 @@ const getAffiliateInfo = async (userId) => {
         affiliateCode: affiliate.affiliate_code,
         commissionRate: affiliate.commission_rate,
         balance: affiliate.balance,
-        totalPaid: affiliate.total_paid,
-        tourCompleted: affiliate.tour_completed
+        totalPaid: affiliate.total_paid
       };
     }
 
@@ -40,8 +38,7 @@ const getAffiliateInfo = async (userId) => {
       affiliateCode: null,
       commissionRate: null,
       balance: null,
-      totalPaid: null,
-      tourCompleted: false
+      totalPaid: null
     };
   } catch (error) {
     console.error('Error getting affiliate info:', error);
@@ -53,8 +50,7 @@ const getAffiliateInfo = async (userId) => {
       affiliateCode: null,
       commissionRate: null,
       balance: null,
-      totalPaid: null,
-      tourCompleted: false
+      totalPaid: null
     };
   }
 };
@@ -95,8 +91,7 @@ exports.authenticateUser = (req, res, next) => {
         affiliateCode: null,
         commissionRate: null,
         balance: null,
-        totalPaid: null,
-        tourCompleted: false
+        totalPaid: null
       };
       next();
     }
@@ -147,8 +142,7 @@ exports.authenticateAdmin = (req, res, next) => {
         affiliateCode: null,
         commissionRate: null,
         balance: null,
-        totalPaid: null,
-        tourCompleted: false
+        totalPaid: null
       };
       next();
     }
@@ -186,8 +180,7 @@ exports.optionalAuth = (req, res, next) => {
         affiliateCode: null,
         commissionRate: null,
         balance: null,
-        totalPaid: null,
-        tourCompleted: false
+        totalPaid: null
       };
       next();
     }
