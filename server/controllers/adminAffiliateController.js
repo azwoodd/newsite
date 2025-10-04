@@ -143,15 +143,19 @@ const getAllAffiliates = async (req, res) => {
     );
 
     // Convert string decimals to numbers
-    const parsedAffiliates = affiliates.map((affiliate) => ({
-      ...affiliate,
-      balance: parseFloat(affiliate.balance) || 0,
-      total_paid: parseFloat(affiliate.total_paid) || 0,
-      commission_rate: parseFloat(affiliate.commission_rate) || 0,
-      payout_threshold: parseFloat(affiliate.payout_threshold) || 50,
-      total_earnings: parseFloat(affiliate.total_earnings) || 0,
-      pending_earnings: parseFloat(affiliate.pending_earnings) || 0,
-    }));
+const parsedAffiliates = affiliates.map(affiliate => ({
+  ...affiliate,
+  balance: parseFloat(affiliate.balance) || 0,
+  total_paid: parseFloat(affiliate.total_paid) || 0,
+  commission_rate: parseFloat(affiliate.commission_rate) || 0,
+  payout_threshold: parseFloat(affiliate.payout_threshold) || 50,
+  total_earnings: parseFloat(affiliate.total_earnings) || 0,
+  pending_earnings: parseFloat(affiliate.pending_earnings) || 0,
+  total_clicks: parseInt(affiliate.total_clicks) || 0,
+  total_signups: parseInt(affiliate.total_signups) || 0,
+  total_conversions: parseInt(affiliate.total_conversions) || 0,
+  conversion_rate: parseFloat(affiliate.conversion_rate) || 0
+}));
 
     // Flatten response
     res.status(200).json({

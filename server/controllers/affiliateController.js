@@ -358,32 +358,39 @@ const getAffiliateDashboard = async (req, res) => {
     // Calculate payout eligibility
     const canRequestPayout = affiliate.balance >= (affiliate.payout_threshold || MIN_PAYOUT_THRESHOLD);
 
-    res.status(200).json({
-      success: true,
-      data: {
-        affiliate: {
-          id: affiliate.id,
-          user_id: affiliate.user_id,
-          status: affiliate.status,
-          commission_rate: affiliate.commission_rate,
-          balance: affiliate.balance,
-          total_paid: affiliate.total_paid,
-          affiliate_code: affiliate.affiliate_code,
-          payout_threshold: affiliate.payout_threshold || MIN_PAYOUT_THRESHOLD,
-          name: affiliate.user_name,
-          email: affiliate.user_email,
-          created_at: affiliate.created_at,
-          approval_date: affiliate.approval_date
-        },
-        stats: {
-          ...commissionStats,
-          ...referralStats,
-          can_request_payout: canRequestPayout
-        },
-        recent_commissions: recentCommissions,
-        recent_events: [] // Placeholder for recent events
-      }
-    });
+res.status(200).json({
+  success: true,
+  data: {
+    affiliate: {
+      id: affiliate.id,
+      user_id: affiliate.user_id,
+      status: affiliate.status,
+      commission_rate: parseFloat(affiliate.commission_rate) || 0,
+      balance: parseFloat(affiliate.balance) || 0,
+      total_paid: parseFloat(affiliate.total_paid) || 0,
+      affiliate_code: affiliate.affiliate_code,
+      payout_threshold: parseFloat(affiliate.payout_threshold) || 50,
+      name: affiliate.user_name,
+      email: affiliate.user_email,
+      created_at: affiliate.created_at,
+      approval_date: affiliate.approval_date
+    },
+    stats: {
+      ...commissionStats,
+      ...referralStats,
+      can_request_payout: canRequestPayout,
+      // Parse all numeric values
+      total_commissions: parseInt(commissionStats.total_commissions) || 0,
+      pending_commissions: parseInt(commissionStats.pending_commissions) || 0,
+      paid_commissions: parseInt(commissionStats.paid_commissions) || 0,
+      total_earnings: parseFloat(commissionStats.total_earnings) || 0,
+      pending_earnings: parseFloat(commissionStats.pending_earnings) || 0,
+      paid_earnings: parseFloat(commissionStats.paid_earnings) || 0
+    },
+    recent_commissions: recentCommissions,
+    recent_events: []
+  }
+});
 
   } catch (error) {
     console.error('Error getting affiliate dashboard:', error);
