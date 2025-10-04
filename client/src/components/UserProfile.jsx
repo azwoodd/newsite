@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { userService } from '../services/api';
+import { usePreserveParams } from '../hooks/usePreserveParams';
 
 const UserProfile = () => {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
+  const { getUrlWithParams } = usePreserveParams();
   
   // Form states
   const [name, setName] = useState('');
@@ -106,7 +108,7 @@ const UserProfile = () => {
       
       // Logout and redirect to home
       logout();
-      navigate('/', { state: { accountDeleted: true } });
+      navigate(getUrlWithParams('/'), { state: { accountDeleted: true } });
     } catch (err) {
       console.error('Error deleting account:', err);
       setError(err.response?.data?.message || 'Failed to delete account. Please try again.');
@@ -118,7 +120,7 @@ const UserProfile = () => {
   // Handle logout
   const handleLogout = () => {
     logout();
-    navigate('/');
+    navigate(getUrlWithParams('/'));
   };
   
   if (!currentUser) {
@@ -140,7 +142,7 @@ const UserProfile = () => {
       <header className="bg-dark/80 backdrop-blur-md shadow-md py-4 sticky top-0 z-30">
         <div className="container-custom flex flex-wrap gap-y-3 justify-between items-center">
           {/* Back button */}
-          <Link to="/dashboard" className="text-sm px-4 py-2 border border-white/20 rounded-full hover:bg-white/10 transition-colors">
+          <Link to={getUrlWithParams('/dashboard')} className="text-sm px-4 py-2 border border-white/20 rounded-full hover:bg-white/10 transition-colors">
             <i className="fas fa-arrow-left mr-2"></i>
             Back to Dashboard
           </Link>
@@ -403,19 +405,19 @@ const UserProfile = () => {
       {/* Mobile navigation footer */}
       <div className="md:hidden fixed bottom-0 left-0 w-full bg-dark/80 backdrop-blur-md border-t border-white/10 z-30">
         <div className="flex justify-around py-2">
-          <Link to="/" className="flex flex-col items-center p-2 text-light-muted">
+          <Link to={getUrlWithParams('/')} className="flex flex-col items-center p-2 text-light-muted">
             <i className="fas fa-home text-lg"></i>
             <span className="text-xs mt-1">Home</span>
           </Link>
-          <Link to="/dashboard" className="flex flex-col items-center p-2 text-light-muted">
+          <Link to={getUrlWithParams('/dashboard')} className="flex flex-col items-center p-2 text-light-muted">
             <i className="fas fa-tachometer-alt text-lg"></i>
             <span className="text-xs mt-1">Dashboard</span>
           </Link>
-          <Link to="/showcase" className="flex flex-col items-center p-2 text-light-muted">
+          <Link to={getUrlWithParams('/showcase')} className="flex flex-col items-center p-2 text-light-muted">
             <i className="fas fa-headphones text-lg"></i>
             <span className="text-xs mt-1">Gallery</span>
           </Link>
-          <Link to="/profile" className="flex flex-col items-center p-2 text-accent">
+          <Link to={getUrlWithParams('/profile')} className="flex flex-col items-center p-2 text-accent">
             <i className="fas fa-user text-lg"></i>
             <span className="text-xs mt-1">Profile</span>
           </Link>

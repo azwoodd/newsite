@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
+import { usePreserveParams } from '../../hooks/usePreserveParams';
 
 const AdminSidebar = ({ activeSection, setActiveSection }) => {
+  const { getUrlWithParams } = usePreserveParams();
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'tachometer-alt' },
     { id: 'orders', label: 'Orders', icon: 'file-invoice' },
@@ -13,7 +15,7 @@ const AdminSidebar = ({ activeSection, setActiveSection }) => {
   return (
     <aside className="h-full flex flex-col">
       <div className="p-4 border-b border-white/10">
-        <Link to="/" className="flex items-center">
+        <Link to={getUrlWithParams('/')} className="flex items-center">
           <i className="fas fa-music text-accent mr-2"></i>
           <span className="text-xl font-bold font-secondary">SongSculptors</span>
         </Link>
@@ -47,23 +49,23 @@ const AdminSidebar = ({ activeSection, setActiveSection }) => {
           </h3>
           <ul className="space-y-2">
             <li>
-              <Link
-                to="/"
-                className="flex items-center px-4 py-2 rounded-lg hover:bg-white/5 text-light-muted transition-colors"
-              >
-                <i className="fas fa-home w-6"></i>
-                <span>Homepage</span>
-              </Link>
-            </li>
-            <li>
-              <Link
-                to="/dashboard"
-                className="flex items-center px-4 py-2 rounded-lg hover:bg-white/5 text-light-muted transition-colors"
-              >
-                <i className="fas fa-user w-6"></i>
-                <span>User Dashboard</span>
-              </Link>
-            </li>
+  <Link
+    to={getUrlWithParams('/')}
+    className="flex items-center px-4 py-2 rounded-lg hover:bg-white/5 text-light-muted transition-colors"
+  >
+    <i className="fas fa-home w-6"></i>
+    <span>Homepage</span>
+  </Link>
+</li>
+<li>
+  <Link
+    to={getUrlWithParams('/dashboard')}
+    className="flex items-center px-4 py-2 rounded-lg hover:bg-white/5 text-light-muted transition-colors"
+  >
+    <i className="fas fa-user w-6"></i>
+    <span>User Dashboard</span>
+  </Link>
+</li>
           </ul>
         </div>
       </nav>

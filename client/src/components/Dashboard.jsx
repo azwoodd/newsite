@@ -8,6 +8,7 @@ import HelpDeskWidget from './HelpDeskWidget';
 import LyricsReviewPanel from './LyricsReviewPanel';
 import SongReviewPanel from './SongReviewPanel';
 import AffiliatePanel from './AffiliatePanel';
+import { usePreserveParams } from '../hooks/usePreserveParams';
 
 // Order Status Component
 const OrderStatus = ({ status }) => {
@@ -159,6 +160,7 @@ const OrderWorkflow = ({ order }) => {
 
 // Main Dashboard Component
 const Dashboard = () => {
+  const { getUrlWithParams } = usePreserveParams();
   const { currentUser, logout, updateOrder } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -549,7 +551,8 @@ const handleSongChangeRequest = async (feedback) => {
     e.preventDefault();
     
     // Navigate to homepage first
-    navigate('/');
+    const homeUrl = getUrlWithParams('/');
+    navigate(homeUrl);
     
     // Wait for navigation to complete, then scroll to form
     setTimeout(() => {
@@ -591,7 +594,7 @@ const handleSongChangeRequest = async (feedback) => {
       <header className="bg-dark/80 backdrop-blur-md shadow-md py-4 sticky top-0 z-30">
         <div className="container-custom flex flex-wrap gap-y-3 justify-between items-center">
           {/* Back button */}
-          <Link to="/" className="text-sm px-4 py-2 border border-white/20 rounded-full hover:bg-white/10 transition-colors">
+          <Link to={getUrlWithParams('/')} className="text-sm px-4 py-2 border border-white/20 rounded-full hover:bg-white/10 transition-colors">
             <i className="fas fa-arrow-left mr-2"></i>
             Back to Main Site
           </Link>
@@ -951,7 +954,7 @@ const handleSongChangeRequest = async (feedback) => {
                     <span>Affiliate Program</span>
                   </button>
                   
-                  <Link to="/" className="flex items-center p-3 hover:bg-white/10 rounded-lg transition-colors">
+                  <Link to={getUrlWithParams('/')} className="flex items-center p-3 hover:bg-white/10 rounded-lg transition-colors">
                     <i className="fas fa-home w-8"></i>
                     <span>Homepage</span>
                   </Link>
@@ -959,11 +962,11 @@ const handleSongChangeRequest = async (feedback) => {
                     <i className="fas fa-plus w-8"></i>
                     <span>Create New Song</span>
                   </button>
-                  <Link to="/showcase" className="flex items-center p-3 hover:bg-white/10 rounded-lg transition-colors">
+                  <Link to={getUrlWithParams('/showcase')} className="flex items-center p-3 hover:bg-white/10 rounded-lg transition-colors">
                     <i className="fas fa-headphones w-8"></i>
                     <span>Song Gallery</span>
                   </Link>
-                  <Link to="/profile" className="flex items-center p-3 bg-white/5 rounded-lg hover:bg-white/10 transition-colors">
+                  <Link to={getUrlWithParams('/profile')} className="flex items-center p-3 bg-white/5 rounded-lg hover:bg-white/10 transition-colors">
                     <i className="fas fa-user-cog w-8"></i>
                     <span>Profile Settings</span>
                   </Link>
@@ -1020,7 +1023,7 @@ const handleSongChangeRequest = async (feedback) => {
                   <i className="fas fa-plus text-lg"></i>
                   <span className="text-xs mt-1">New Song</span>
                 </button>
-                <Link to="/profile" className="flex flex-col items-center p-2 text-light-muted">
+                <Link to={getUrlWithParams('/profile')} className="flex flex-col items-center p-2 text-light-muted">
                   <i className="fas fa-user text-lg"></i>
                   <span className="text-xs mt-1">Profile</span>
                 </Link>

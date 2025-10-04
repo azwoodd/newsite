@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import ConnectedAudioPlayer from './ConnectedAudioPlayer';
 import { songService } from '../services/api';
+import { usePreserveParams } from '../hooks/usePreserveParams';
 
 const CategoryFilter = ({ categories, activeCategory, onChange }) => {
   return (
@@ -34,6 +35,7 @@ const Showcase = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const { getUrlWithParams } = usePreserveParams();
 
   // Load initial data and scroll handling
   useEffect(() => {
@@ -109,7 +111,10 @@ const Showcase = () => {
 
   // Handle button click to create song with showcase option
   const handleCreateSongClick = () => {
-    navigate(`/#order-form?showInGallery=${showPublicOption}`);
+    const orderFormUrl = getUrlWithParams('/#order-form', { 
+       showInGallery: showPublicOption 
+      });
+      navigate(orderFormUrl);
   };
 
   return (

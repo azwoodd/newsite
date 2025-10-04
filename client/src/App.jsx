@@ -135,7 +135,16 @@ const App = () => {
               
               
               {/* Public routes */}
-              <Route path="/showcase" element={<Showcase />} />
+              <Route 
+                path="/showcase" 
+                element={
+                  <>
+                    <Header scrolled={scrolled} />
+                    <Showcase />
+                    <Footer />
+                  </>
+                } 
+              />
               
               {/* 404 */}
               <Route path="*" element={<NotFound />} />
