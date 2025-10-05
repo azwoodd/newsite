@@ -69,15 +69,48 @@ export const affiliateService = {
   },
 
   // Request payout
-  requestPayout: async (amount) => {
-    try {
-      console.log('[Affiliate Service] Requesting payout:', amount);
-      return await api.post('/affiliate/request-payout', { amount });
-    } catch (error) {
-      console.error('[Affiliate Service] Error requesting payout:', error);
-      throw new Error(getErrorMessage(error));
+requestPayout: async (paymentDetails) => {
+  try {
+    console.log('[Affiliate Service] Requesting payout with payment details...');
+    
+    // Validate payment details
+    if (!paymentDetails.paymentMethod) {
+      throw new Error('Payment method is required');
     }
-  },
+
+    if (!paymentDetails.fullName) {
+      throw new Error('Full name is required');
+    }
+
+    if (paymentDetails.paymentMethod === 'stripe' && !paymentDetails.stripeEmail) {
+      throw new Error('Stripe email is required');
+    }
+
+    if (paymentDetails.paymentMethod === 'bank_transfer') {
+      if (!paymentDetails.accountHolderName || !paymentDetails.bankName || 
+          !paymentDetails.accountNumber || !paymentDetails.sortCode) {
+        throw new Error('All bank details are required for bank transfers');
+      }
+    }
+
+    // Send request with payment details
+    const response = await api.post('/affiliate/request-payout', {
+      paymentMethod: paymentDetails.paymentMethod,
+      stripeEmail: paymentDetails.stripeEmail,
+      fullName: paymentDetails.fullName,
+      accountHolderName: paymentDetails.accountHolderName,
+      bankName: paymentDetails.bankName,
+      accountNumber: paymentDetails.accountNumber,
+      sortCode: paymentDetails.sortCode
+    });
+
+    console.log('[Affiliate Service] Payout requested successfully');
+    return response;
+  } catch (error) {
+    console.error('[Affiliate Service] Error requesting payout:', error);
+    throw new Error(getErrorMessage(error));
+  }
+},
 
   // Validate promo code
   validatePromoCode: async (code, orderTotal) => {

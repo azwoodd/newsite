@@ -1,11 +1,13 @@
-// server/controllers/affiliateController.js - COMPLETE FILE WITH ALL ORIGINAL FUNCTIONALITY + FIXES
+// server/controllers/affiliateController.js
+// ✅ COMPLETE FILE WITH ALL FIXES: GBP currency, payout with payment details, commission fixes
+
 const { pool } = require('../config/db');
 const crypto = require('crypto');
 
 // Constants
 const DEFAULT_COMMISSION_RATE = 10.00;
-const MIN_PAYOUT_THRESHOLD = 10.00;
-const COMMISSION_HOLDING_DAYS = 0;
+const MIN_PAYOUT_THRESHOLD = 10.00; // £10 GBP minimum
+const COMMISSION_HOLDING_DAYS = 14; // ✅ FIXED: 14 day holding period for chargebacks
 const REAPPLICATION_COOLDOWN_DAYS = 30;
 const CODE_REGENERATION_COOLDOWN_HOURS = 24;
 const AFFILIATE_COOKIE_DAYS = 30;
@@ -22,7 +24,7 @@ const calculateCommission = (orderTotal, commissionRate) => {
   return Math.round((orderTotal * commissionRate / 100) * 100) / 100;
 };
 
-// 🔧 FIXED: Get current user's affiliate status - FIXED to always return proper structure
+// Get current user's affiliate status
 const getAffiliateStatus = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -45,7 +47,6 @@ const getAffiliateStatus = async (req, res) => {
 
     console.log(`[DEBUG] Affiliate query result:`, affiliateRows);
 
-    // 🔧 FIX: Always return proper data structure even when no affiliate found
     if (affiliateRows.length === 0) {
       console.log(`[DEBUG] No affiliate record found, returning default structure`);
       return res.status(200).json({
@@ -74,7 +75,6 @@ const getAffiliateStatus = async (req, res) => {
       canApply = true;
     }
 
-    // 🔧 FIX: Return consistent structured response with all required fields
     const responseData = {
       isAffiliate: true,
       hasApplication: true,
@@ -105,7 +105,6 @@ const getAffiliateStatus = async (req, res) => {
   } catch (error) {
     console.error('Error getting affiliate status:', error);
     
-    // 🔧 FIX: Return safe fallback structure even on error
     res.status(500).json({
       success: false,
       message: 'Failed to get affiliate status',
@@ -153,7 +152,7 @@ const submitApplication = async (req, res) => {
       const affiliate = existingAffiliate[0];
       
       // Check if they can reapply
-      if (affiliate.status === 'denied' && affiliate.next_allowed_application_date) {
+      if (affiliate.status === 'rejected' && affiliate.next_allowed_application_date) {
         const canReapply = new Date() >= new Date(affiliate.next_allowed_application_date);
         if (!canReapply) {
           return res.status(400).json({
@@ -161,7 +160,7 @@ const submitApplication = async (req, res) => {
             message: `You can reapply on ${affiliate.next_allowed_application_date.toDateString()}`
           });
         }
-      } else if (affiliate.status !== 'denied') {
+      } else if (affiliate.status !== 'rejected') {
         return res.status(400).json({
           success: false,
           message: 'You already have an affiliate application'
@@ -182,7 +181,6 @@ const submitApplication = async (req, res) => {
       portfolio_links: portfolio_links ? JSON.stringify(portfolio_links) : null
     };
 
-    // Add optional fields that might not exist in all database versions
     try {
       applicationData.payout_threshold = MIN_PAYOUT_THRESHOLD;
       applicationData.application_date = new Date();
@@ -266,36 +264,36 @@ const getAffiliateDashboard = async (req, res) => {
     // Get commission stats
     let commissionStats = {
       total_commissions: 0,
-      pending_commissions: 0,
+      approved_commissions: 0,
       paid_commissions: 0,
       total_earnings: 0,
-      pending_earnings: 0,
+      available_balance: 0,
       paid_earnings: 0
     };
 
     try {
       const [statsRows] = await pool.query(`
-  SELECT 
-    COUNT(*) as total_commissions,
-    COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_commissions,
-    COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_commissions,
-    SUM(amount) as total_earnings,
-    SUM(CASE WHEN status = 'approved' THEN amount ELSE 0 END) as available_balance,
-    SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) as paid_earnings
-  FROM commissions 
-  WHERE affiliate_id = ?
-`, [affiliate.id]);
+        SELECT 
+          COUNT(*) as total_commissions,
+          COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_commissions,
+          COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_commissions,
+          SUM(amount) as total_earnings,
+          SUM(CASE WHEN status = 'approved' THEN amount ELSE 0 END) as available_balance,
+          SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) as paid_earnings
+        FROM commissions 
+        WHERE affiliate_id = ?
+      `, [affiliate.id]);
 
       if (statsRows.length > 0) {
-  commissionStats = {
-    total_commissions: statsRows[0].total_commissions || 0,
-    approved_commissions: statsRows[0].approved_commissions || 0,
-    paid_commissions: statsRows[0].paid_commissions || 0,
-    total_earnings: parseFloat(statsRows[0].total_earnings) || 0,
-    available_balance: parseFloat(statsRows[0].available_balance) || 0,
-    paid_earnings: parseFloat(statsRows[0].paid_earnings) || 0
-  };
-}
+        commissionStats = {
+          total_commissions: statsRows[0].total_commissions || 0,
+          approved_commissions: statsRows[0].approved_commissions || 0,
+          paid_commissions: statsRows[0].paid_commissions || 0,
+          total_earnings: parseFloat(statsRows[0].total_earnings) || 0,
+          available_balance: parseFloat(statsRows[0].available_balance) || 0,
+          paid_earnings: parseFloat(statsRows[0].paid_earnings) || 0
+        };
+      }
     } catch (e) {
       console.log('Commission stats not available:', e.message);
     }
@@ -358,39 +356,38 @@ const getAffiliateDashboard = async (req, res) => {
     // Calculate payout eligibility
     const canRequestPayout = affiliate.balance >= (affiliate.payout_threshold || MIN_PAYOUT_THRESHOLD);
 
-res.status(200).json({
-  success: true,
-  data: {
-    affiliate: {
-      id: affiliate.id,
-      user_id: affiliate.user_id,
-      status: affiliate.status,
-      commission_rate: parseFloat(affiliate.commission_rate) || 0,
-      balance: parseFloat(affiliate.balance) || 0,  // This is the AVAILABLE balance
-      total_paid: parseFloat(affiliate.total_paid) || 0,
-      affiliate_code: affiliate.affiliate_code,
-      payout_threshold: parseFloat(affiliate.payout_threshold) || 50,
-      name: affiliate.user_name,
-      email: affiliate.user_email,
-      created_at: affiliate.created_at,
-      approval_date: affiliate.approval_date
-    },
-    stats: {
-      ...commissionStats,
-      ...referralStats,
-      can_request_payout: canRequestPayout,
-      // Parse all numeric values
-      total_commissions: parseInt(commissionStats.total_commissions) || 0,
-      approved_commissions: parseInt(commissionStats.approved_commissions) || 0,
-      paid_commissions: parseInt(commissionStats.paid_commissions) || 0,
-      total_earnings: parseFloat(commissionStats.total_earnings) || 0,
-      available_balance: parseFloat(commissionStats.available_balance) || 0,
-      paid_earnings: parseFloat(commissionStats.paid_earnings) || 0
-    },
-    recent_commissions: recentCommissions,
-    recent_events: []
-  }
-});
+    res.status(200).json({
+      success: true,
+      data: {
+        affiliate: {
+          id: affiliate.id,
+          user_id: affiliate.user_id,
+          status: affiliate.status,
+          commission_rate: parseFloat(affiliate.commission_rate) || 0,
+          balance: parseFloat(affiliate.balance) || 0,
+          total_paid: parseFloat(affiliate.total_paid) || 0,
+          affiliate_code: affiliate.affiliate_code,
+          payout_threshold: parseFloat(affiliate.payout_threshold) || MIN_PAYOUT_THRESHOLD,
+          name: affiliate.user_name,
+          email: affiliate.user_email,
+          created_at: affiliate.created_at,
+          approval_date: affiliate.approval_date
+        },
+        stats: {
+          ...commissionStats,
+          ...referralStats,
+          can_request_payout: canRequestPayout,
+          total_commissions: parseInt(commissionStats.total_commissions) || 0,
+          approved_commissions: parseInt(commissionStats.approved_commissions) || 0,
+          paid_commissions: parseInt(commissionStats.paid_commissions) || 0,
+          total_earnings: parseFloat(commissionStats.total_earnings) || 0,
+          available_balance: parseFloat(commissionStats.available_balance) || 0,
+          paid_earnings: parseFloat(commissionStats.paid_earnings) || 0
+        },
+        recent_commissions: recentCommissions,
+        recent_events: []
+      }
+    });
 
   } catch (error) {
     console.error('Error getting affiliate dashboard:', error);
@@ -520,7 +517,7 @@ const regenerateAffiliateCode = async (req, res) => {
   }
 };
 
-// Request payout
+// ✅ UPDATED: Request payout with payment details
 const requestPayout = async (req, res) => {
   const connection = await pool.getConnection();
   
@@ -528,7 +525,47 @@ const requestPayout = async (req, res) => {
     await connection.beginTransaction();
     
     const userId = req.user.id;
-    const { amount } = req.body;
+    const { 
+      paymentMethod, 
+      stripeEmail, 
+      fullName,
+      accountHolderName,
+      bankName,
+      accountNumber,
+      sortCode
+    } = req.body;
+
+    // ✅ Validate payment method
+    if (!paymentMethod || !['stripe', 'bank_transfer'].includes(paymentMethod)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payment method. Must be "stripe" or "bank_transfer"'
+      });
+    }
+
+    // ✅ Validate required fields based on payment method
+    if (paymentMethod === 'stripe') {
+      if (!stripeEmail || !fullName) {
+        return res.status(400).json({
+          success: false,
+          message: 'Stripe email and full name are required for Stripe payouts'
+        });
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(stripeEmail)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid email address format'
+        });
+      }
+    } else if (paymentMethod === 'bank_transfer') {
+      if (!accountHolderName || !bankName || !accountNumber || !sortCode || !fullName) {
+        return res.status(400).json({
+          success: false,
+          message: 'All bank details are required for bank transfer payouts'
+        });
+      }
+    }
     
     // Get affiliate info
     const [affiliateRows] = await connection.query(
@@ -539,55 +576,46 @@ const requestPayout = async (req, res) => {
     if (affiliateRows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Affiliate account not found or not approved'
+        message: 'Approved affiliate account not found'
       });
     }
 
     const affiliate = affiliateRows[0];
-    
-    // Validate payout amount
-    const payoutAmount = amount || affiliate.balance;
-    
-    if (payoutAmount < (affiliate.payout_threshold || MIN_PAYOUT_THRESHOLD)) {
+
+    // ✅ Check minimum threshold (GBP)
+    if (affiliate.balance < MIN_PAYOUT_THRESHOLD) {
       return res.status(400).json({
         success: false,
-        message: `Minimum payout amount is $${affiliate.payout_threshold || MIN_PAYOUT_THRESHOLD}`
+        message: `Minimum payout threshold is £${MIN_PAYOUT_THRESHOLD}. Your current balance is £${affiliate.balance}`
       });
     }
 
-    if (payoutAmount > affiliate.balance) {
-      return res.status(400).json({
-        success: false,
-        message: `Insufficient balance. Your current balance is $${affiliate.balance}`
-      });
-    }
-
-    // Get eligible commissions
+    // ✅ Get eligible commissions (approved and at least 14 days old)
     const eligibleDate = new Date();
-eligibleDate.setDate(eligibleDate.getDate() - COMMISSION_HOLDING_DAYS);
+    eligibleDate.setDate(eligibleDate.getDate() - COMMISSION_HOLDING_DAYS);
 
-let eligibleCommissions = [];
-try {
-  const [commissions] = await connection.query(`
-    SELECT id, amount 
-    FROM commissions 
-    WHERE affiliate_id = ? 
-      AND status = 'approved'   // ✅ FIXED - commissions that are earned but not paid
-      AND created_at <= ?
-    ORDER BY created_at ASC
-  `, [affiliate.id, eligibleDate]);
+    const [eligibleCommissions] = await connection.query(`
+      SELECT id, amount 
+      FROM commissions 
+      WHERE affiliate_id = ? 
+        AND status = 'approved'
+        AND created_at <= ?
+      ORDER BY created_at ASC
+    `, [affiliate.id, eligibleDate]);
 
-      eligibleCommissions = commissions;
-    } catch (e) {
-      console.log('Commission tables not available:', e.message);
+    if (eligibleCommissions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: `No eligible commissions. Commissions must be ${COMMISSION_HOLDING_DAYS} days old to be eligible for payout.`
+      });
     }
 
-    // Calculate eligible amount
+    // Calculate total eligible amount
     let totalEligible = 0;
     let commissionsToProcess = [];
 
     for (const commission of eligibleCommissions) {
-      if (totalEligible + commission.amount <= payoutAmount) {
+      if (totalEligible + commission.amount <= affiliate.balance) {
         totalEligible += commission.amount;
         commissionsToProcess.push(commission.id);
       } else {
@@ -598,68 +626,81 @@ try {
     if (totalEligible === 0) {
       return res.status(400).json({
         success: false,
-        message: `No eligible commissions. Commissions must be ${COMMISSION_HOLDING_DAYS} days old to be eligible for payout.`
+        message: 'No eligible commissions available for payout at this time'
       });
     }
 
-    try {
-      // Create payout request
-      const payoutData = {
-        affiliate_id: affiliate.id,
+    // ✅ Prepare payment info based on method
+    let paymentInfo = {
+      method: paymentMethod,
+      fullName: fullName
+    };
+
+    if (paymentMethod === 'stripe') {
+      paymentInfo.stripeEmail = stripeEmail;
+    } else {
+      paymentInfo.accountHolderName = accountHolderName;
+      paymentInfo.bankName = bankName;
+      paymentInfo.accountNumber = accountNumber.slice(-4); // Store only last 4 digits
+      paymentInfo.sortCode = sortCode;
+    }
+
+    // ✅ Create payout request with payment details
+    const payoutData = {
+      affiliate_id: affiliate.id,
+      amount: totalEligible,
+      commission_ids: JSON.stringify(commissionsToProcess),
+      commission_count: commissionsToProcess.length,
+      status: 'pending',
+      payment_method: paymentMethod,
+      payment_info: JSON.stringify(paymentInfo),
+      requested_at: new Date()
+    };
+
+    const [result] = await connection.query(`
+      INSERT INTO affiliate_payouts SET ?
+    `, [payoutData]);
+
+    const payoutId = result.insertId;
+
+    // Mark commissions as processing
+    if (commissionsToProcess.length > 0) {
+      await connection.query(`
+        UPDATE commissions 
+        SET status = 'processing', payout_id = ?
+        WHERE id IN (${commissionsToProcess.map(() => '?').join(',')})
+      `, [payoutId, ...commissionsToProcess]);
+    }
+
+    // Deduct from affiliate balance
+    await connection.query(`
+      UPDATE affiliates 
+      SET balance = balance - ?
+      WHERE id = ?
+    `, [totalEligible, affiliate.id]);
+
+    await connection.commit();
+
+    // ✅ Return success with GBP symbol
+    res.status(201).json({
+      success: true,
+      message: `Payout request for £${totalEligible.toFixed(2)} submitted successfully`,
+      data: {
+        payoutId,
         amount: totalEligible,
-        commission_ids: JSON.stringify(commissionsToProcess),
-        commission_count: commissionsToProcess.length,
-        status: 'pending'
-      };
-
-      const [result] = await connection.query(`
-        INSERT INTO affiliate_payouts SET ?
-      `, [payoutData]);
-
-      // Mark commissions as processing
-      if (commissionsToProcess.length > 0) {
-        await connection.query(`
-          UPDATE commissions SET 
-            status = 'processing',
-            payout_id = ?
-          WHERE id IN (${commissionsToProcess.map(() => '?').join(',')})
-        `, [result.insertId, ...commissionsToProcess]);
+        commissionCount: commissionsToProcess.length,
+        paymentMethod,
+        status: 'pending',
+        estimatedProcessingTime: paymentMethod === 'stripe' ? '3-5 business days' : '5-7 business days'
       }
-
-      await connection.commit();
-
-      res.status(201).json({
-        success: true,
-        message: `Payout request for $${totalEligible.toFixed(2)} submitted successfully`,
-        data: {
-          payout_id: result.insertId,
-          amount: totalEligible,
-          commissions_count: commissionsToProcess.length
-        }
-      });
-
-    } catch (e) {
-      // If payout tables don't exist, create a simple placeholder response
-      console.log('Payout tables not available:', e.message);
-      
-      await connection.commit();
-      
-      res.status(201).json({
-        success: true,
-        message: `Payout request for $${totalEligible.toFixed(2)} noted (pending system implementation)`,
-        data: {
-          amount: totalEligible,
-          commissions_count: commissionsToProcess.length
-        }
-      });
-    }
+    });
 
   } catch (error) {
     await connection.rollback();
     console.error('Error requesting payout:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to submit payout request',
+      message: 'Failed to request payout',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   } finally {
@@ -723,11 +764,11 @@ const validatePromoCode = async (req, res) => {
       });
     }
 
-    // Check minimum order value
+    // ✅ Check minimum order value (GBP)
     if (orderTotal && promoCode.min_order_value > 0 && orderTotal < promoCode.min_order_value) {
       return res.status(400).json({
         success: false,
-        message: `Minimum order value for this code is $${promoCode.min_order_value}`
+        message: `Minimum order value for this code is £${promoCode.min_order_value}`
       });
     }
 
@@ -835,7 +876,6 @@ const trackReferralEvent = async (req, res) => {
       }
     } catch (e) {
       console.log('Referral tracking tables not available:', e.message);
-      // Continue without tracking if tables don't exist
     }
 
     res.status(201).json({
@@ -898,7 +938,7 @@ const processCommission = async (affiliate_id, orderId, orderTotal) => {
     );
 
     await connection.commit();
-    console.log(`Commission of $${commissionAmount} processed for affiliate ${affiliate_id}`);
+    console.log(`Commission of £${commissionAmount} processed for affiliate ${affiliate_id}`);
     
   } catch (error) {
     await connection.rollback();
@@ -909,7 +949,7 @@ const processCommission = async (affiliate_id, orderId, orderTotal) => {
   }
 };
 
-// CRITICAL: Export all functions
+// Export all functions
 module.exports = {
   getAffiliateStatus,
   submitApplication,

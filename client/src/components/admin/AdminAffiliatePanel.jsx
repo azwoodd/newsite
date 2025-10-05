@@ -672,7 +672,7 @@ const AffiliateManager = () => {
                         <StatusBadge status={affiliate.status} />
                       </td>
                       <td className="px-4 py-3">{affiliate.commission_rate}%</td>
-                      <td className="px-4 py-3">${affiliate.balance.toFixed(2)}</td>
+                      <td className="px-4 py-3">£{affiliate.balance.toFixed(2)}</td>
                       <td className="px-4 py-3">
                         {new Date(affiliate.created_at).toLocaleDateString()}
                       </td>
@@ -797,7 +797,7 @@ const AffiliateManager = () => {
 
               <div className="grid grid-cols-3 gap-4 pt-4 border-t border-white/10">
                 <div className="text-center">
-                  <p className="text-2xl font-bold text-accent">${selectedAffiliate.total_earnings?.toFixed(2) || '0.00'}</p>
+                  <p className="text-2xl font-bold text-accent">£{selectedAffiliate.total_earnings?.toFixed(2) || '0.00'}</p>
                   <p className="text-sm text-light-muted">Total Earned</p>
                 </div>
                 <div className="text-center">

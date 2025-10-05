@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { affiliateService } from '../services/affiliateService';
+import PayoutRequestForm from './PayoutRequestForm';
 
 // Affiliate Application Component
 const AffiliateApplication = ({ onApplicationSubmitted }) => {
@@ -215,6 +216,7 @@ const AffiliateDashboard = ({ affiliateData, onRegenerateCode }) => {
   const [showPayoutForm, setShowPayoutForm] = useState(false);
   const [isRequestingPayout, setIsRequestingPayout] = useState(false);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [copySuccess, setCopySuccess] = useState(false);
 
@@ -235,22 +237,32 @@ const AffiliateDashboard = ({ affiliateData, onRegenerateCode }) => {
     }
   };
 
-  const handleRequestPayout = async () => {
-    if (!stats.can_request_payout) return;
-    
-    setError(null);
-    setIsRequestingPayout(true);
+const handlePayoutRequest = async (paymentDetails) => {  // ✅ NEW - accepts paymentDetails
+  setError(null);
+  setIsRequestingPayout(true);
 
-    try {
-      await affiliateService.requestPayout(affiliate.balance);
-      onRegenerateCode(); // Refresh data
-      setShowPayoutForm(false);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setIsRequestingPayout(false);
-    }
-  };
+  try {
+    await affiliateService.requestPayout({
+      paymentMethod: paymentDetails.paymentMethod,
+      stripeEmail: paymentDetails.stripeEmail,
+      fullName: paymentDetails.fullName,
+      accountHolderName: paymentDetails.accountHolderName,
+      bankName: paymentDetails.bankName,
+      accountNumber: paymentDetails.accountNumber,
+      sortCode: paymentDetails.sortCode
+    });
+    
+    setSuccess(`Payout request submitted! You'll receive £${affiliate.balance.toFixed(2)} within ${
+      paymentDetails.paymentMethod === 'stripe' ? '3-5' : '5-7'
+    } business days.`);
+    setShowPayoutForm(false);
+    onRegenerateCode();
+  } catch (err) {
+    setError(err.message);
+  } finally {
+    setIsRequestingPayout(false);
+  }
+};
 
   const shareableLink = affiliate.affiliate_code 
     ? `https://songsculptors.com/?ref=${affiliate.affiliate_code}`
@@ -267,8 +279,24 @@ const AffiliateDashboard = ({ affiliateData, onRegenerateCode }) => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white/5 border border-white/20 rounded-lg p-6">
+  <div className="space-y-6">
+    {/* Success Display */}
+    {success && (
+      <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+        <i className="fas fa-check-circle mr-2"></i>
+        {success}
+      </div>
+    )}
+
+    {/* Error Display */}
+    {error && (
+      <div className="bg-romantic/10 border border-romantic rounded-lg p-4">
+        <i className="fas fa-exclamation-circle mr-2"></i>
+        {error}
+      </div>
+    )}
+
+    <div className="bg-white/5 border border-white/20 rounded-lg p-6">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h3 className="text-xl font-bold font-secondary">
@@ -278,7 +306,7 @@ const AffiliateDashboard = ({ affiliateData, onRegenerateCode }) => {
             <p className="text-light-muted">Welcome back, {affiliate.name}!</p>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-bold text-accent">${affiliate.balance.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-accent">£{affiliate.balance.toFixed(2)}</div>
             <div className="text-sm text-light-muted">Available Balance</div>
           </div>
         </div>
@@ -298,7 +326,7 @@ const AffiliateDashboard = ({ affiliateData, onRegenerateCode }) => {
             <div className="text-sm text-light-muted">Conversion Rate</div>
           </div>
           <div className="bg-white/5 rounded-lg p-4 text-center">
-            <div className="text-xl font-bold">${stats.total_earnings.toFixed(2)}</div>
+            <div className="text-xl font-bold">£{stats.total_earnings.toFixed(2)}</div>
             <div className="text-sm text-light-muted">Total Earned</div>
           </div>
         </div>
@@ -389,7 +417,7 @@ const AffiliateDashboard = ({ affiliateData, onRegenerateCode }) => {
                     <tr key={commission.id} className="border-b border-white/5">
                       <td className="py-3">{new Date(commission.created_at).toLocaleDateString()}</td>
                       <td className="py-3">{commission.order_number || `#${commission.order_id}`}</td>
-                      <td className="py-3 font-mono">${commission.amount}</td>
+                      <td className="py-3 font-mono">£{commission.amount}</td>
                       <td className="py-3">
                         <span className={`px-2 py-1 rounded-full text-xs ${
                           commission.status === 'paid' 
@@ -408,13 +436,7 @@ const AffiliateDashboard = ({ affiliateData, onRegenerateCode }) => {
         </div>
       )}
 
-      {/* Error Display */}
-      {error && (
-        <div className="bg-romantic/10 border border-romantic rounded-lg p-4">
-          <i className="fas fa-exclamation-circle mr-2"></i>
-          {error}
-        </div>
-      )}
+
 
       {/* Regenerate Code Confirmation */}
       {showRegenerateConfirm && (
@@ -451,42 +473,14 @@ const AffiliateDashboard = ({ affiliateData, onRegenerateCode }) => {
         </div>
       )}
 
-      {/* Payout Request Form */}
+{/* Payout Form Modal */}
       {showPayoutForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-dark border border-white/20 rounded-lg p-6 max-w-md mx-4">
-            <h4 className="font-bold mb-4">Request Payout</h4>
-            <p className="text-light-muted mb-4">
-              Request a payout of your current balance: <span className="font-bold text-accent">${affiliate.balance.toFixed(2)}</span>
-            </p>
-            <p className="text-sm text-light-muted mb-6">
-              Minimum payout amount is <span className="font-bold">${affiliate.payout_threshold.toFixed(2)}</span>.
-              This will be processed within 3-5 business days.
-            </p>
-            <div className="flex space-x-3">
-              <button
-                onClick={handleRequestPayout}
-                disabled={isRequestingPayout}
-                className="flex-1 px-4 py-2 bg-accent text-dark rounded-lg hover:bg-accent-alt transition-colors disabled:opacity-50"
-              >
-                {isRequestingPayout ? (
-                  <>
-                    <i className="fas fa-spinner fa-spin mr-2"></i>
-                    Processing...
-                  </>
-                ) : (
-                  'Request Payout'
-                )}
-              </button>
-              <button
-                onClick={() => setShowPayoutForm(false)}
-                className="flex-1 px-4 py-2 border border-white/20 rounded-lg hover:bg-white/10 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+        <PayoutRequestForm
+          availableBalance={parseFloat(affiliate.balance || 0)}
+          onSubmit={handlePayoutRequest}
+          onCancel={() => setShowPayoutForm(false)}
+          isLoading={isRequestingPayout}
+        />
       )}
     </div>
   );

@@ -200,128 +200,143 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
     switch (event.type) {
       case 'payment_intent.succeeded': {
-  const paymentIntent = event.data.object;
-  console.log(`💰 PaymentIntent succeeded: ${paymentIntent.id}`);
-  try {
-    const { pool } = require('../config/db');
-    const affiliateService = require('../services/affiliateService');
-    
-    const orderId = paymentIntent.metadata?.orderId;
-    if (orderId) {
-      // Update order status
-      await pool.query(
-        `UPDATE orders 
-           SET payment_status='paid', payment_id=?, payment_details=?, updated_at=NOW()
-         WHERE id=?`,
-        [
-          paymentIntent.id,
-          JSON.stringify({
-            provider: 'stripe',
-            amount: paymentIntent.amount,
-            currency: paymentIntent.currency,
-            status: paymentIntent.status
-          }),
-          orderId
-        ]
-      );
-      console.log(`✅ Order ${orderId} status updated to paid`);
-      
-      // ✅ NEW: Track affiliate purchase and create commission
-      try {
-        // Get order details for commission calculation
-        const [orderData] = await pool.query(
-          'SELECT user_id, total_price, promo_discount_amount, referring_affiliate_id FROM orders WHERE id = ?',
-          [orderId]
-        );
+        const paymentIntent = event.data.object;
+        console.log(`💰 PaymentIntent succeeded: ${paymentIntent.id}`);
         
-        if (orderData.length > 0) {
-          const order = orderData[0];
-          
-          // Only track purchase if there's an affiliate ID
-          if (order.referring_affiliate_id) {
-            const mockReq = { 
-              ip: 'webhook', 
-              session: { id: 'webhook' },
-              cookies: {},
-              get: () => 'Stripe-Webhook'
-            };
-            
-            const result = await affiliateService.trackPurchase(
-              orderId,
-              order.user_id,
-              order.total_price,
-              order.promo_discount_amount || 0,
-              mockReq
-            );
-            
-            if (result.success) {
-              console.log(`✅ Affiliate commission £${result.commissionAmount} created for order ${orderId}`);
-            } else {
-              console.warn(`⚠️ Commission not created: ${result.error}`);
-            }
-          } else {
-            console.log(`ℹ️ No affiliate attribution for order ${orderId}`);
-          }
-        }
-      } catch (affiliateError) {
-        console.error('❌ Error tracking affiliate purchase:', affiliateError);
-        // Don't fail the webhook if affiliate tracking fails
-      }
-    } else {
-      console.warn('⚠️ No order ID found in payment intent metadata');
-    }
-  } catch (dbError) {
-    console.error('❌ Error updating order status:', dbError);
-  }
-  break;
-}
-      
-
-      case 'payment_intent.payment_failed': {
-        const failedPayment = event.data.object;
-        console.log(`❌ Payment failed: ${failedPayment.id}`);
         try {
           const { pool } = require('../config/db');
-          const orderId = failedPayment.metadata?.orderId;
-          if (orderId) {
-            await pool.query(
-              `UPDATE orders 
-                 SET payment_status='failed', payment_id=?, payment_details=?, updated_at=NOW()
-               WHERE id=?`,
-              [
-                failedPayment.id,
-                JSON.stringify({
-                  provider: 'stripe',
-                  error: failedPayment.last_payment_error,
-                  status: failedPayment.status
-                }),
-                orderId
-              ]
-            );
-            console.log(`✅ Order ${orderId} status updated to failed`);
+          const orderId = paymentIntent.metadata?.orderId;
+          
+          if (!orderId) {
+            console.warn('⚠️ No orderId in payment metadata');
+            return res.json({ received: true });
           }
-        } catch (dbError) {
-          console.error('❌ Error updating failed order status:', dbError);
+
+          // Update order status
+          await pool.query(
+            `UPDATE orders 
+             SET payment_status='paid', payment_id=?, payment_details=?, updated_at=NOW()
+             WHERE id=?`,
+            [
+              paymentIntent.id,
+              JSON.stringify({
+                provider: 'stripe',
+                amount: paymentIntent.amount,
+                currency: paymentIntent.currency,
+                status: paymentIntent.status
+              }),
+              orderId
+            ]
+          );
+          console.log(`✅ Order ${orderId} status updated to paid`);
+
+          // ✅ CRITICAL: Process affiliate commission
+          const [orderData] = await pool.query(
+            `SELECT 
+              id, user_id, total_price, promo_discount_amount, referring_affiliate_id 
+             FROM orders 
+             WHERE id = ?`,
+            [orderId]
+          );
+
+          if (orderData.length > 0 && orderData[0].referring_affiliate_id) {
+            const order = orderData[0];
+            const affiliateId = order.referring_affiliate_id;
+
+            console.log(`🎯 Processing commission for affiliate ${affiliateId}, order ${orderId}`);
+
+            // Get affiliate commission rate
+            const [affiliateInfo] = await pool.query(
+              `SELECT commission_rate FROM affiliates WHERE id = ? AND status = 'approved'`,
+              [affiliateId]
+            );
+
+            if (affiliateInfo.length > 0) {
+              const commissionRate = parseFloat(affiliateInfo[0].commission_rate);
+              
+              // Calculate commission (based on total after discount)
+              const orderTotal = parseFloat(order.total_price);
+              const discount = parseFloat(order.promo_discount_amount || 0);
+              const baseAmount = orderTotal - discount;
+              const commissionAmount = (baseAmount * commissionRate) / 100;
+
+              console.log(`💵 Commission calculation: £${orderTotal} - £${discount} = £${baseAmount} × ${commissionRate}% = £${commissionAmount}`);
+
+              try {
+                // ✅ Create commission record (with duplicate check)
+                await pool.query(
+                  `INSERT INTO commissions (affiliate_id, order_id, amount, rate, status, created_at, approved_at)
+                   VALUES (?, ?, ?, ?, 'approved', NOW(), NOW())
+                   ON DUPLICATE KEY UPDATE status = 'approved', approved_at = NOW()`,
+                  [affiliateId, orderId, commissionAmount, commissionRate]
+                );
+
+                // ✅ Update affiliate balance IMMEDIATELY
+                await pool.query(
+                  `UPDATE affiliates 
+                   SET balance = balance + ?,
+                       updated_at = NOW()
+                   WHERE id = ?`,
+                  [commissionAmount, affiliateId]
+                );
+
+                console.log(`✅ Commission £${commissionAmount.toFixed(2)} added to affiliate ${affiliateId} balance`);
+
+                // ✅ Update affiliate stats
+                await pool.query(
+                  `UPDATE affiliates
+                   SET total_earnings = COALESCE(total_earnings, 0) + ?
+                   WHERE id = ?`,
+                  [commissionAmount, affiliateId]
+                );
+
+              } catch (commissionError) {
+                // If it's a duplicate key error, that's okay - commission already exists
+                if (commissionError.code === 'ER_DUP_ENTRY') {
+                  console.log(`ℹ️ Commission already exists for order ${orderId}, skipping`);
+                } else {
+                  console.error('❌ Error creating commission:', commissionError);
+                  // Don't fail the webhook - log and continue
+                }
+              }
+            } else {
+              console.log(`⚠️ Affiliate ${affiliateId} not approved or not found`);
+            }
+          } else {
+            console.log('ℹ️ No referring affiliate for this order');
+          }
+
+        } catch (error) {
+          console.error('❌ Error processing payment webhook:', error);
+          // Don't return error to Stripe - we've logged it
         }
+
         break;
       }
 
-      case 'payment_intent.requires_action': {
-        const actionRequired = event.data.object;
-        console.log(`🔐 Payment requires action: ${actionRequired.id}`);
+      case 'payment_intent.payment_failed': {
+        const paymentIntent = event.data.object;
+        console.log(`❌ Payment failed: ${paymentIntent.id}`);
+        
+        const orderId = paymentIntent.metadata?.orderId;
+        if (orderId) {
+          await pool.query(
+            `UPDATE orders SET payment_status='failed', updated_at=NOW() WHERE id=?`,
+            [orderId]
+          );
+        }
         break;
       }
 
       default:
-        console.log(`⚠️ Unhandled event type: ${event.type}`);
+        console.log(`ℹ️ Unhandled event type: ${event.type}`);
     }
 
-    // 👈 Always acknowledge so Stripe stops retrying
-    return res.sendStatus(200);
+    res.json({ received: true });
+
   } catch (error) {
-    console.error('❌ Webhook handler error:', error);
-    // Return 200 so Stripe doesn’t retry forever on our own internal error
-    return res.sendStatus(200);
+    console.error('❌ Webhook processing error:', error);
+    res.status(500).json({ error: 'Webhook processing failed' });
   }
 });
 
