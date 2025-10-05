@@ -317,6 +317,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       case 'payment_intent.payment_failed': {
         const paymentIntent = event.data.object;
         console.log(`❌ Payment failed: ${paymentIntent.id}`);
+        const { pool } = require('../config/db'); 
         
         const orderId = paymentIntent.metadata?.orderId;
         if (orderId) {
