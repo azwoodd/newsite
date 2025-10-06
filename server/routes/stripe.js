@@ -295,9 +295,9 @@ const stripeWebhookHandler = [
 
             // ✅ CRITICAL: Process affiliate commission
             const [orderData] = await pool.query(
-              `SELECT 
-                id, user_id, total_price, promo_discount_amount, referring_affiliate_id 
-               FROM orders 
+              `SELECT
+                id, user_id, total_price, referring_affiliate_id
+               FROM orders
                WHERE id = ?`,
               [orderId]
             );
@@ -316,14 +316,12 @@ const stripeWebhookHandler = [
 
               if (affiliateInfo.length > 0 && affiliateInfo[0].status === 'approved') {
                 const commissionRate = parseFloat(affiliateInfo[0].commission_rate);
-                const orderTotal = parseFloat(order.total_price);
-                const discount = parseFloat(order.promo_discount_amount || 0);
-                
-                // ✅ CRITICAL: Calculate commission on NET amount (total - discount)
-                const netTotal = Math.max(orderTotal - discount, 0);
+
+                // ✅ total_price is already the NET amount charged (post-discount)
+                const netTotal = Math.max(parseFloat(order.total_price || 0), 0);
                 const commissionAmount = Math.round((netTotal * commissionRate / 100) * 100) / 100;
 
-                console.log(`💰 Commission calculation: (£${orderTotal} - £${discount}) × ${commissionRate}% = £${commissionAmount}`);
+                console.log(`💰 Commission calculation: £${netTotal} × ${commissionRate}% = £${commissionAmount}`);
 
                 try {
                   // ✅ Insert commission with configurable hold period

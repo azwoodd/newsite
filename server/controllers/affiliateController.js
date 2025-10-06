@@ -894,52 +894,69 @@ const trackReferralEvent = async (req, res) => {
 };
 
 // Process commission (internal function)
-const processCommission = async (affiliate_id, orderId, orderTotal) => {
+const processCommission = async (orderId) => {
   const connection = await pool.getConnection();
-  
+
   try {
     await connection.beginTransaction();
-    
-    // Get affiliate commission rate
-    const [affiliateRows] = await connection.query(
-      'SELECT commission_rate FROM affiliates WHERE id = ? AND status = "approved"',
-      [affiliate_id]
+
+    const [orderRows] = await connection.query(
+      `SELECT id, total_price, referring_affiliate_id
+       FROM orders
+       WHERE id = ?
+       LIMIT 1`,
+      [orderId]
     );
 
-    if (affiliateRows.length === 0) {
-      throw new Error('Affiliate not found or not approved');
+    if (!orderRows.length) {
+      await connection.rollback();
+      console.warn(`⚠️ Cannot process commission for order ${orderId}: order not found`);
+      return { success: false, reason: 'order_not_found' };
     }
 
-    const commissionRate = affiliateRows[0].commission_rate;
-    const commissionAmount = calculateCommission(orderTotal, commissionRate);
+    const order = orderRows[0];
+    const affiliateId = order.referring_affiliate_id;
 
-    try {
-      // Create commission record
-      await connection.query(`
-        INSERT INTO commissions SET ?
-      `, [{
-        affiliate_id: affiliate_id,
-        order_id: orderId,
-        amount: commissionAmount,
-        rate: commissionRate,
-        status: 'pending'
-      }]);
-    } catch (e) {
-      console.log('Commissions table not available:', e.message);
+    if (!affiliateId) {
+      await connection.commit();
+      console.log(`ℹ️ Order ${orderId} has no referring affiliate. Skipping commission.`);
+      return { success: true, reason: 'no_affiliate' };
     }
 
-    // Update affiliate balance
-    await connection.query(`
-      UPDATE affiliates SET 
-        balance = balance + ?,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?`,
-      [commissionAmount, affiliate_id]
+    const [affiliateRows] = await connection.query(
+      `SELECT id, commission_rate, status
+       FROM affiliates
+       WHERE id = ?
+       LIMIT 1`,
+      [affiliateId]
+    );
+
+    if (!affiliateRows.length || affiliateRows[0].status !== 'approved') {
+      await connection.commit();
+      console.log(`ℹ️ Affiliate ${affiliateId} not approved or missing. Skipping commission for order ${orderId}.`);
+      return { success: true, reason: 'affiliate_not_approved' };
+    }
+
+    const commissionRate = parseFloat(affiliateRows[0].commission_rate || 0);
+    const netTotal = Math.max(parseFloat(order.total_price || 0), 0);
+    const commissionAmount = calculateCommission(netTotal, commissionRate);
+    const holdDays = parseInt(process.env.COMMISSION_HOLD_DAYS || `${COMMISSION_HOLDING_DAYS}`, 10);
+
+    await connection.query(
+      `INSERT INTO commissions
+       (affiliate_id, order_id, amount, status, hold_until, created_at)
+       VALUES (?, ?, ?, 'approved', DATE_ADD(NOW(), INTERVAL ? DAY), NOW())
+       ON DUPLICATE KEY UPDATE
+         amount = VALUES(amount),
+         status = VALUES(status),
+         hold_until = VALUES(hold_until)`,
+      [affiliateId, orderId, commissionAmount, holdDays]
     );
 
     await connection.commit();
-    console.log(`Commission of £${commissionAmount} processed for affiliate ${affiliate_id}`);
-    
+    console.log(`✅ Commission £${commissionAmount} recorded for affiliate ${affiliateId} on order ${orderId}`);
+
+    return { success: true, reason: 'commission_recorded', amount: commissionAmount };
   } catch (error) {
     await connection.rollback();
     console.error('Error processing commission:', error);
