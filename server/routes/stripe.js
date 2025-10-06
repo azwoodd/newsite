@@ -1,105 +1,138 @@
 // server/routes/stripe.js
-// ✅ FIXED: All placeholders removed, broken strings fixed, complete webhook logic
+// ============================================================
+// Stripe Payments + Webhook (Affiliate Commission Integrated)
+// ============================================================
 //
-// CRITICAL DATABASE REQUIREMENTS:
-// 1. commissions table MUST have UNIQUE KEY (affiliate_id, order_id) for idempotency
-// 2. commissions table MUST have 'hold_until' DATETIME column for 14-day holds
-// 3. orders table MUST have 'referring_affiliate_id' INT column
+// DATABASE REQUIREMENTS (ensure these exist):
+// 1) commissions table: UNIQUE KEY (affiliate_id, order_id) for idempotency
+// 2) commissions table: hold_until DATETIME NULL
+// 3) orders table: referring_affiliate_id INT NULL
 //
-// SQL to add if missing:
-// ALTER TABLE commissions ADD COLUMN hold_until DATETIME NULL AFTER status;
-// ALTER TABLE commissions ADD UNIQUE KEY uniq_aff_order (affiliate_id, order_id);
-// ALTER TABLE orders ADD COLUMN referring_affiliate_id INT NULL;
+// Example SQL (run only if missing):
+//   ALTER TABLE commissions ADD COLUMN hold_until DATETIME NULL AFTER status;
+//   ALTER TABLE commissions ADD UNIQUE KEY uniq_aff_order (affiliate_id, order_id);
+//   ALTER TABLE orders ADD COLUMN referring_affiliate_id INT NULL;
 //
-// TESTING vs PRODUCTION:
-// Set COMMISSION_HOLD_DAYS=0 in .env for instant commissions (testing)
-// Set COMMISSION_HOLD_DAYS=14 in .env for production 14-day hold
+// ENV TOGGLES:
+// - COMMISSION_HOLD_DAYS=0  (testing → instant availability)
+// - COMMISSION_HOLD_DAYS=14 (production default → 14-day hold)
+// - TEST_PAYMENTS_OPEN=true (disables auth on just these endpoints while testing)
 //
-// UNITS CLARIFICATION:
-// - Stripe paymentIntent.amount is in PENCE (smallest currency unit)
-// - orders.total_price is in POUNDS (DECIMAL(10,2))
-// - commissions.amount is in POUNDS (DECIMAL(10,2))
-// - Dashboard should display all amounts as £XX.XX (pounds)
+// UNITS:
+// - Stripe payment intents: pence (amount = 25000 → £250.00)
+// - orders.total_price: pounds (DECIMAL(10,2))
+// - commissions.amount: pounds (DECIMAL(10,2))
+//
+// SECURITY:
+// - Do NOT expose STRIPE_SECRET_KEY to the client
+// - Webhook MUST receive the raw body and verify signature
+//
+// ============================================================
+
+'use strict';
 
 const express = require('express');
 const router = express.Router();
 
-// ✅ Configure commission hold period from environment
-// 0 = instant (for testing), 14 = production hold
+// ---------- Config toggles ----------
 const COMMISSION_HOLD_DAYS = parseInt(process.env.COMMISSION_HOLD_DAYS || '14', 10);
+// Toggle to open payments (no auth) during testing
+const TEST_PAYMENTS_OPEN = String(process.env.TEST_PAYMENTS_OPEN || 'false').toLowerCase() === 'true';
 
-// Import Stripe with better error handling
-// ✅ PRODUCTION: Fail fast if STRIPE_SECRET_KEY is missing
+// ---------- Stripe initialization ----------
 if (!process.env.STRIPE_SECRET_KEY) {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('STRIPE_SECRET_KEY is required in production');
+  } else {
+    console.warn('⚠️ STRIPE_SECRET_KEY not set — running in dummy mode (development only).');
   }
-  console.warn('⚠️ STRIPE_SECRET_KEY not set - using dummy mode for development');
 }
 
 let stripe;
 try {
   stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-  
-  // Test the Stripe connection immediately
+  // quick ping (non-blocking)
   (async () => {
     try {
-      // Simple API call to validate connection
       await stripe.paymentIntents.list({ limit: 1 });
       console.log('✅ Stripe connection successful');
-    } catch (error) {
-      console.error('❌ Stripe connection failed:', error.message);
+    } catch (e) {
+      console.error('❌ Stripe connection failed:', e.message);
     }
   })();
-} catch (error) {
-  console.error('❌ Failed to initialize Stripe:', error.message);
-  
-  // Only use dummy object in development
+} catch (err) {
+  console.error('❌ Failed to initialize Stripe:', err.message);
   if (process.env.NODE_ENV === 'development') {
+    // Safe dummy shim for dev only
     stripe = {
       paymentIntents: {
-        create: () => Promise.resolve({ client_secret: 'dummy_secret', id: 'dummy_id' }),
-        retrieve: () => Promise.resolve({ status: 'succeeded' }),
-        list: () => Promise.resolve({ data: [] })
+        create: async () => ({ client_secret: 'dummy_secret', id: 'pi_dummy', amount: 0, status: 'requires_payment_method' }),
+        retrieve: async () => ({ id: 'pi_dummy', amount: 0, status: 'succeeded', currency: 'gbp' }),
+        list: async () => ({ data: [] })
       },
       webhooks: {
-        constructEvent: () => ({ type: 'dummy_event', data: { object: {} } })
+        constructEvent: (_body, _sig, _secret) => ({ type: 'dummy_event', data: { object: {} } })
       }
     };
   } else {
-    throw error;
+    throw err;
   }
 }
 
-// Auth middleware for all routes
+// ---------- Auth middleware (toggleable) ----------
+const passthrough = (_req, _res, next) => next();
+
+let authenticateUser = null;
+try {
+  // If you already have a proper auth middleware, we’ll use it.
+  ({ authenticateUser } = require('../middleware/auth'));
+} catch {
+  // no-op: will fall back to simple header check below
+}
+
 const checkAuth = (req, res, next) => {
   // Check for Authorization header
   const authHeader = req.headers.authorization;
-  
+
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     // For development, allow requests to proceed without auth
     if (process.env.NODE_ENV === 'development') {
       console.warn('⚠️ Proceeding without authentication in development mode');
       return next();
     }
-    
+
     return res.status(401).json({
       success: false,
       message: 'Authentication required'
     });
   }
-  
+
   // In a real implementation, validate JWT token here
   next();
 };
 
+// Optional: use your full authenticateUser if available; otherwise fall back to header check
+let _authenticateUser = null;
+try {
+  ({ authenticateUser: _authenticateUser } = require('../middleware/auth'));
+} catch (e) {
+  // no authenticateUser available; using checkAuth
+}
+
+const _passthrough = (_req, _res, next) => next();
+const requireAuth = TEST_PAYMENTS_OPEN ? _passthrough : (_authenticateUser || checkAuth);
+
+// ---------- Utilities ----------
+const isValidAmountPence = (amt) => Number.isInteger(amt) && amt >= 100 && amt <= 1_000_000; // £1–£10,000
+
+// ---------- Create Payment Intent ----------
 /**
- * Create a payment intent
  * POST /api/payment/create-intent
+ * Body: { amount (pence), currency?, orderId, metadata? }
  */
-router.post('/create-intent', checkAuth, async (req, res) => {
+router.post('/create-intent', requireAuth, async (req, res) => {
   try {
-    const { amount, currency = 'gbp', metadata = {}, orderId } = req.body;
+    const { amount, currency = 'gbp', metadata = {}, orderId } = req.body || {};
 
     // ✅ CRITICAL: Validate required fields
     if (!amount) {
@@ -108,26 +141,26 @@ router.post('/create-intent', checkAuth, async (req, res) => {
         message: 'Amount is required'
       });
     }
-    
+
     if (!orderId) {
       return res.status(400).json({
         success: false,
         message: 'orderId is required for payment tracking'
       });
     }
-    
+
     // Validate amount is reasonable (between £1 and £10,000)
-    if (amount < 100 || amount > 1000000) {
+    if (!isValidAmountPence(amount)) {
       return res.status(400).json({
         success: false,
-        message: 'Amount must be between £1 and £10,000'
+        message: 'Amount must be between £1 and £10,000 (in pence)'
       });
     }
-    
+
     // ✅ Currency guard: normalize to GBP server-side (we only sell in GBP)
     const normalizedCurrency = 'gbp';
 
-    console.log(`🔄 Creating payment intent: ${amount/100} ${normalizedCurrency.toUpperCase()} for order ${orderId}`);
+    console.log(`🔄 Creating payment intent: £${(amount / 100).toFixed(2)} ${normalizedCurrency.toUpperCase()} for order ${orderId}`);
 
     // Create payment intent with Stripe
     // ✅ CRITICAL: Always include orderId in metadata for webhook tracking
@@ -135,7 +168,7 @@ router.post('/create-intent', checkAuth, async (req, res) => {
       amount,
       currency: normalizedCurrency,
       metadata: {
-        ...metadata,
+        ...metadata, // ✅ FIXED: spread metadata correctly
         orderId: String(orderId), // ✅ Server-side authoritative orderId
         environment: process.env.NODE_ENV || 'development'
       },
@@ -156,10 +189,10 @@ router.post('/create-intent', checkAuth, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Stripe payment intent error:', error.message);
-    
+    console.error('❌ Stripe payment intent error:', error);
+
     // Check if it's a Stripe API error
-    if (error.type && error.type.startsWith('Stripe')) {
+    if (error && error.type && String(error.type).toLowerCase().includes('stripe')) {
       return res.status(400).json({
         success: false,
         message: error.message,
@@ -167,7 +200,7 @@ router.post('/create-intent', checkAuth, async (req, res) => {
         type: error.type
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Error creating payment intent',
@@ -176,27 +209,27 @@ router.post('/create-intent', checkAuth, async (req, res) => {
   }
 });
 
+// ---------- Verify Payment Intent ----------
 /**
- * Verify payment status
  * GET /api/payment/verify/:paymentIntentId
  */
-router.get('/verify/:paymentIntentId', checkAuth, async (req, res) => {
+router.get('/verify/:paymentIntentId', requireAuth, async (req, res) => {
   try {
     const { paymentIntentId } = req.params;
-    
+
     if (!paymentIntentId || paymentIntentId === 'undefined') {
       return res.status(400).json({
         success: false,
         message: 'Payment intent ID is required'
       });
     }
-    
+
     console.log(`🔄 Verifying payment intent: ${paymentIntentId}`);
-    
+
     const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-    
+
     console.log(`✅ Payment status: ${paymentIntent.status}`);
-    
+
     res.status(200).json({
       success: true,
       status: paymentIntent.status,
@@ -208,17 +241,17 @@ router.get('/verify/:paymentIntentId', checkAuth, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Payment verification error:', error.message);
-    
+    console.error('❌ Payment verification error:', error);
+
     // If the payment intent doesn't exist
-    if (error.code === 'resource_missing') {
+    if (error && error.code === 'resource_missing') {
       return res.status(404).json({
         success: false,
         message: 'Payment intent not found',
         code: error.code
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Error verifying payment',
@@ -227,10 +260,9 @@ router.get('/verify/:paymentIntentId', checkAuth, async (req, res) => {
   }
 });
 
-/**
- * Handle Stripe webhooks
- * POST /api/payment/webhook
- */
+// ---------- Webhook Handler (exported for mounting with raw body) ----------
+// NOTE: You already mount /api/webhook/stripe in server.js. If you prefer,
+// you can mount this handler at /api/payment/webhook instead — but do NOT mount both.
 const stripeWebhookHandler = [
   express.raw({ type: 'application/json' }),
   async (req, res) => {
@@ -239,7 +271,7 @@ const stripeWebhookHandler = [
       const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
       if (!endpointSecret) {
-        console.warn('⚠️ Stripe webhook secret not configured');
+        console.warn('⚠️ STRIPE_WEBHOOK_SECRET not configured');
         return res.status(400).json({ success: false, message: 'Webhook secret not configured' });
       }
 
@@ -259,14 +291,14 @@ const stripeWebhookHandler = [
         case 'payment_intent.succeeded': {
           const paymentIntent = event.data.object;
           console.log(`💰 PaymentIntent succeeded: ${paymentIntent.id}`);
-          
+
           try {
             const { pool } = require('../config/db');
             const orderId = paymentIntent.metadata?.orderId;
-            
+
             if (!orderId) {
               console.warn('⚠️ No orderId in payment metadata');
-              return res.json({ received: true });
+              break;
             }
 
             // Update order status with comprehensive payment details
@@ -321,13 +353,13 @@ const stripeWebhookHandler = [
                 const netTotal = Math.max(parseFloat(order.total_price || 0), 0);
                 const commissionAmount = Math.round((netTotal * commissionRate / 100) * 100) / 100;
 
-                console.log(`💰 Commission calculation: £${netTotal} × ${commissionRate}% = £${commissionAmount}`);
+                console.log(`💰 Commission calculation: £${netTotal.toFixed(2)} × ${commissionRate}% = £${commissionAmount.toFixed(2)}`);
 
                 try {
                   // ✅ Insert commission with configurable hold period
                   // COMMISSION_HOLD_DAYS=0 for testing (instant), =14 for production
-                  const holdDays = COMMISSION_HOLD_DAYS;
-                  
+                  const holdDays = Number.isFinite(COMMISSION_HOLD_DAYS) ? COMMISSION_HOLD_DAYS : 14;
+
                   await pool.query(
                     `INSERT INTO commissions 
                      (affiliate_id, order_id, amount, status, hold_until, created_at) 
@@ -339,7 +371,7 @@ const stripeWebhookHandler = [
                     [affiliateId, orderId, commissionAmount, holdDays]
                   );
 
-                  console.log(`✅ Commission £${commissionAmount} recorded for affiliate ${affiliateId} (${holdDays}-day hold)`);
+                  console.log(`✅ Commission £${commissionAmount.toFixed(2)} recorded for affiliate ${affiliateId} (${holdDays}-day hold)`);
 
                   // ✅ NOTE: We do NOT update affiliates.balance here
                   // Balance should be calculated from released commissions (hold_until <= NOW())
@@ -347,7 +379,7 @@ const stripeWebhookHandler = [
 
                 } catch (commissionError) {
                   // If it's a duplicate key error, that's okay - commission already exists
-                  if (commissionError.code === 'ER_DUP_ENTRY') {
+                  if (commissionError && commissionError.code === 'ER_DUP_ENTRY') {
                     console.log(`ℹ️ Commission already exists for order ${orderId}, skipping`);
                   } else {
                     console.error('❌ Error creating commission:', commissionError);
@@ -360,7 +392,6 @@ const stripeWebhookHandler = [
             } else {
               console.log('ℹ️ No referring affiliate for this order');
             }
-
           } catch (error) {
             console.error('❌ Error processing payment webhook:', error);
             // Don't return error to Stripe - we've logged it
@@ -373,16 +404,22 @@ const stripeWebhookHandler = [
           const paymentIntent = event.data.object;
           console.log(`❌ Payment failed: ${paymentIntent.id}`);
           const { pool } = require('../config/db'); 
-          
+
           const orderId = paymentIntent.metadata?.orderId;
           if (orderId) {
-            await pool.query(
-              `UPDATE orders SET payment_status='failed', updated_at=NOW() WHERE id=?`,
-              [orderId]
-            );
+            try {
+              await pool.query(
+                `UPDATE orders SET payment_status='failed', updated_at=NOW() WHERE id=?`,
+                [orderId]
+              );
+            } catch (e) {
+              console.error('❌ Failed to mark order failed:', e);
+            }
           }
           break;
         }
+
+        // TODO: add charge.refunded / charge.dispute.created to reverse/hold commissions as needed
 
         default:
           console.log(`ℹ️ Unhandled event type: ${event.type}`);
@@ -398,8 +435,9 @@ const stripeWebhookHandler = [
   }
 ];
 
-// Export both the router and the webhook handler separately
-// This allows proper mounting in server.js
+// ---------- Exports ----------
+// Keep this shape so your loader that does `require(module)` can either receive a router
+// directly or pick `.router` if you update it as suggested.
 module.exports = {
   router,              // For /create-intent and /verify routes
   stripeWebhook: stripeWebhookHandler  // For /webhook route (needs raw body)

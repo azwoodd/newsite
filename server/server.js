@@ -296,24 +296,36 @@ const loadRoutes = () => {
       { path: '/api/paypal', name: 'PayPal', reason: 'Missing express-validator dependency' }
     ];
 
-    // Load working routes
-    workingRoutes.forEach(({ path, module, name }) => {
-      try {
-        const router = require(module);
-        app.use(path, router);
-        console.log(`${name} routes loaded`);
-      } catch (error) {
-        console.error(`Failed to load ${name} routes:`, error.message);
-        // Create a fallback route that returns an error
-        app.use(path, (req, res) => {
-          res.status(503).json({
-            success: false,
-            message: `${name} service is currently unavailable`,
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-          });
-        });
-      }
+// Load working routes
+workingRoutes.forEach(({ path, module, name }) => {
+  try {
+    const mod = require(module);
+    // Support: module.exports = router  OR  module.exports = { router }  OR  export default router
+    const candidate = (mod && (mod.router || mod.default)) || mod;
+
+    // Express routers are functions; some also have a .stack array
+    const isRouter =
+      typeof candidate === 'function' ||
+      (candidate && typeof candidate === 'object' && Array.isArray(candidate.stack));
+
+    if (!isRouter) {
+      throw new Error(`${name} routes module did not export an Express router (got ${typeof candidate})`);
+    }
+
+    app.use(path, candidate);
+    console.log(`${name} routes loaded`);
+  } catch (error) {
+    console.error(`Failed to load ${name} routes:`, error.message);
+    // Fallback: keep API up and return 503 for this route group
+    app.use(path, (req, res) => {
+      res.status(503).json({
+        success: false,
+        message: `${name} service is currently unavailable`,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     });
+  }
+});
 
     // Create placeholder routes for disabled services
     disabledRoutes.forEach(({ path, name, reason }) => {
