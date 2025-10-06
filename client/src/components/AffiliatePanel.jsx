@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { affiliateService } from '../services/affiliateService';
 import PayoutRequestForm from './PayoutRequestForm';
+import AffiliateProgramInfo from './AffiliateProgramInfo';
 
 // Affiliate Application Component
 const AffiliateApplication = ({ onApplicationSubmitted }) => {
@@ -392,6 +393,10 @@ const handlePayoutRequest = async (paymentDetails) => {  // ✅ NEW - accepts pa
         </div>
       </div>
 
+      <div className="mt-6">
+  <AffiliateProgramInfo isCompact />
+</div>
+
       {/* Commission History */}
       {activeTab === 'commissions' && (
         <div className="bg-white/5 border border-white/20 rounded-lg p-6">
@@ -686,10 +691,17 @@ const fetchAffiliateStatus = async () => {
         </div>
       )}
 
-      {/* Not an affiliate yet - show application form */}
       {(!affiliateStatus?.isAffiliate || !affiliateStatus?.hasApplication) && affiliateStatus?.canApply && (
-        <AffiliateApplication onApplicationSubmitted={handleApplicationSubmitted} />
-      )}
+  <>
+    {/* Program info ABOVE the join form (non-affiliates) */}
+    <AffiliateProgramInfo />
+
+    {/* Join form */}
+    <div className="mt-6">
+      <AffiliateApplication onApplicationSubmitted={handleApplicationSubmitted} />
+    </div>
+  </>
+)}
 
       {/* Pending application */}
       {affiliateStatus?.status === 'pending' && (

@@ -15,6 +15,10 @@ const stripeRoutes = require('./routes/stripe');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// ⬇️ import from your routes/stripe.js
+const { router: stripeRouter, stripeWebhook } = require('./routes/stripe');
+
+
 // Create HTTP server from Express app
 const server = http.createServer(app);
 
@@ -163,7 +167,12 @@ const limiter = rateLimit({
 });
 
 
-app.post('/api/payment/webhook', stripeRoutes.stripeWebhook);
+
+// ⬇️ RAW route for Stripe webhook (must be before express.json())
+app.post('/api/payment/webhook',
+  express.raw({ type: 'application/json' }),
+  stripeWebhook
+);
 
 // Middleware
 app.use(express.json({ limit: '50mb' }));

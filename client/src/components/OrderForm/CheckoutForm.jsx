@@ -218,7 +218,6 @@ const CheckoutForm = ({ formData, promoCode = '', onSuccessfulPayment }) => {
         additionalNotes: formData.additionalNotes,
         promoCode: appliedPromoCode || null,   // <-- server reads this
         promoDiscountAmount: discountAmount || 0,
-        promoDiscountAmount: discountAmount || 0,
         finalPrice: calculateTotalAmount(formData, discountAmount) / 100, // £
         customer: {
           name: customerInfo.name,
