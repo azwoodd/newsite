@@ -303,26 +303,34 @@ const stripeWebhookHandler = [
 
             // Update order status with comprehensive payment details
             await pool.query(
-              `UPDATE orders 
-               SET payment_status='paid', payment_id=?, payment_details=?, updated_at=NOW()
-               WHERE id=?`,
-              [
-                paymentIntent.id,
-                JSON.stringify({
-                  provider: 'stripe',
-                  amount: paymentIntent.amount,
-                  currency: paymentIntent.currency,
-                  status: paymentIntent.status,
-                  payment_method: paymentIntent.payment_method,
-                  charges: paymentIntent.charges?.data?.map(c => ({ 
-                    id: c.id, 
-                    status: c.status, 
-                    paid: c.paid 
-                  })) || []
-                }),
-                orderId
-              ]
-            );
+  `UPDATE orders 
+     SET payment_status='paid',
+         payment_id=?,
+         payment_details=?,
+         -- auto-progress workflow only if still pending
+         status = CASE
+                    WHEN status = 'pending' THEN 'in_production'
+                    ELSE status
+                  END,
+         updated_at=NOW()
+   WHERE id=?`,
+  [
+    paymentIntent.id,
+    JSON.stringify({
+      provider: 'stripe',
+      amount: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      status: paymentIntent.status,
+      payment_method: paymentIntent.payment_method,
+      charges: paymentIntent.charges?.data?.map(c => ({
+        id: c.id,
+        status: c.status,
+        paid: c.paid
+      })) || []
+    }),
+    orderId
+  ]
+);
             console.log(`✅ Order ${orderId} status updated to paid`);
 
             // ✅ CRITICAL: Process affiliate commission

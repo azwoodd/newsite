@@ -9,6 +9,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const http = require('http');
+const stripeRoutes = require('./routes/stripe');
 
 // Initialize app FIRST before any imports that might use it
 const app = express();
@@ -161,6 +162,9 @@ const limiter = rateLimit({
   }
 });
 
+
+app.post('/api/payment/webhook', stripeRoutes.stripeWebhook);
+
 // Middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ 
@@ -168,6 +172,8 @@ app.use(express.urlencoded({
   extended: true,
   parameterLimit: 50000 
 }));
+
+app.use('/api/payment', stripeRoutes.router);
 
 // Cookie parser for affiliate tracking
 const cookieParser = require('cookie-parser');
@@ -285,7 +291,6 @@ const loadRoutes = () => {
       { path: '/api/newsletter', module: './routes/newsletter', name: 'Newsletter' },
       { path: '/api/admin', module: './routes/admin', name: 'Admin' },
       { path: '/api/helpdesk', module: './routes/helpdesk', name: 'Helpdesk' },
-      { path: '/api/payment', module: './routes/stripe', name: 'Stripe' },
       { path: '/api/affiliate', module: './routes/affiliate', name: 'Affiliate' },
       { path: '/api/checkout', module: './routes/checkout', name: 'Checkout' },
       { path: '/api/webhooks', module: './routes/webhooks', name: 'Webhooks' }
@@ -347,56 +352,7 @@ workingRoutes.forEach(({ path, module, name }) => {
 // Load all routes
 loadRoutes();
 
-// Special handling for Stripe webhooks - needs raw body
-app.post('/api/webhook/stripe', express.raw({type: 'application/json'}), (req, res) => {
-  try {
-    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    const sig = req.headers['stripe-signature'];
 
-    if (!endpointSecret) {
-      console.error('Stripe webhook secret not configured');
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Webhook endpoint not configured' 
-      });
-    }
-
-    let event;
-    try {
-      event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-    } catch (err) {
-      console.error('Webhook signature verification failed:', err.message);
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Webhook signature verification failed' 
-      });
-    }
-
-    // Handle the event
-    console.log('Stripe webhook event:', event.type);
-    
-    // Process different event types
-    switch (event.type) {
-      case 'payment_intent.succeeded':
-        console.log('Payment succeeded:', event.data.object.id);
-        break;
-      case 'payment_intent.payment_failed':
-        console.log('Payment failed:', event.data.object.id);
-        break;
-      default:
-        console.log(`Unhandled event type ${event.type}`);
-    }
-
-    res.status(200).json({ received: true });
-  } catch (error) {
-    console.error('Error processing webhook:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error processing webhook' 
-    });
-  }
-});
 
 // HANDLE CLIENT-SIDE ROUTING - MUST BE AFTER ALL API ROUTES
 if (fs.existsSync(clientBuildPath)) {

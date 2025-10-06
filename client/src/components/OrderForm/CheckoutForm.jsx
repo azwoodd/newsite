@@ -216,8 +216,8 @@ const CheckoutForm = ({ formData, promoCode = '', onSuccessfulPayment }) => {
         musicStyle: formData.musicStyle,
         showInGallery: formData.showInGallery,
         additionalNotes: formData.additionalNotes,
-        addons: addonsPayload,
-        usedPromoCode: appliedPromoCode || null,
+        promoCode: appliedPromoCode || null,   // <-- server reads this
+        promoDiscountAmount: discountAmount || 0,
         promoDiscountAmount: discountAmount || 0,
         finalPrice: calculateTotalAmount(formData, discountAmount) / 100, // £
         customer: {
@@ -330,58 +330,34 @@ const CheckoutForm = ({ formData, promoCode = '', onSuccessfulPayment }) => {
         return;
       }
 
-      if (result.paymentIntent.status === 'succeeded') {
-        try {
-          if (orderId) {
-            await api.put(`/orders/${orderId}/status`, {
-              status: 'paid',
-              paymentId: result.paymentIntent.id,
-            });
-          }
-          onSuccessfulPayment?.({
-            orderId,
-            orderNumber,
-            paymentId: result.paymentIntent.id,
-          });
-          navigate('/dashboard', {
-            state: {
-              orderSuccess: true,
-              orderId,
-              orderNumber,
-              paymentId: result.paymentIntent.id,
-            },
-          });
-        } catch (e) {
-          console.error('Order update after payment failed:', e);
-          setPaymentError(
-            'Payment succeeded, but updating your order failed. We will fix this shortly.'
-          );
-          onSuccessfulPayment?.({
-            orderId,
-            orderNumber,
-            paymentId: result.paymentIntent.id,
-          });
-          setTimeout(() => {
-            navigate('/dashboard', {
-              state: {
-                orderSuccess: true,
-                orderId,
-                orderNumber,
-                paymentId: result.paymentIntent.id,
-              },
-            });
-          }, 3000);
-        }
-      } else {
-        setPaymentError(`Payment status: ${result.paymentIntent.status}. Please try again.`);
-        setIsProcessing(false);
-      }
-    } catch (error) {
-      console.error('Payment error:', error);
-      setPaymentError('An unexpected error occurred. Please try again.');
-      setIsProcessing(false);
-    }
-  };
+if (result.paymentIntent.status === 'succeeded') {
+  // No client-side status update — webhook will mark paid and advance workflow.
+  const paymentId = result.paymentIntent.id;
+
+  onSuccessfulPayment?.({
+    orderId,
+    orderNumber,
+    paymentId,
+  });
+
+  navigate('/dashboard', {
+    state: {
+      orderSuccess: true,
+      orderId,
+      orderNumber,
+      paymentId,
+    },
+  });
+} else {
+  setPaymentError(`Payment status: ${result.paymentIntent.status}. Please try again.`);
+  setIsProcessing(false);
+}
+} catch (error) {
+  console.error('Payment error:', error);
+  setPaymentError('An unexpected error occurred. Please try again.');
+  setIsProcessing(false);
+}
+};
 
   const cardElementOptions = {
     style: {
