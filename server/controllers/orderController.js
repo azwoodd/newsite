@@ -458,7 +458,7 @@ exports.updateOrderStatus = async (req, res) => {
 
               if (promoCodeRows.length > 0) {
                 const { processCommission } = require('./affiliateController');
-                await processCommission(orderId, promoCodeRows[0].id);
+                await processCommission(orderId);
                 console.log(`Affiliate commission processed for order ${orderId}`);
               }
             } catch (commissionError) {
