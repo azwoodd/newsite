@@ -584,14 +584,15 @@ const helpdeskService = {
 
 // Payment services
 const paymentService = {
-  createPaymentIntent: async (amount, metadata = {}) => {
+  // amount is in pence; orderId is required by the backend
+  createPaymentIntent: async (amount, orderId, metadata = {}, currency = 'gbp') => {
     try {
-      return await api.post('/payment/create-intent', { amount, metadata });
+      return await api.post('/payment/create-intent', { amount, currency, orderId, metadata });
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
   },
-  
+
   verifyPayment: async (paymentIntentId) => {
     try {
       return await api.get(`/payment/verify/${paymentIntentId}`);
